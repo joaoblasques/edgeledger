@@ -9,8 +9,17 @@ wheels/
 # Virtual environments
 .venv
 
-# Data (Delta tables, raw payloads) — never committed
-data/
+# Data (raw payloads, bronze partitions) — never committed. Bronze is ~28 GiB/year and is
+# archived to R2 instead; see src/edgeledger/archive.py and ADR-0003.
+#
+# Note `data/*` and not `data/`: excluding the directory itself stops git descending into
+# it, which makes the negation below silently dead.
+data/*
+
+# ...except the forecast log, which is the whole point of the project: the public,
+# append-only, hash-chained record. Small (~125 MiB/year) and deliberately tracked so the
+# chain can be verified by anyone from the repo alone.
+!data/forecast_log.jsonl
 
 # Secrets
 .env

@@ -1,0 +1,104 @@
+name: Scheduled forecast
+
+# Every 6 hours. This is the twelve-month clock — see docs/methodology.md.
+#
+# GitHub skips scheduled runs on repos with no activity for 60 days, and delays them under
+# load. Both are acceptable here: a forecast is a point-in-time observation, so a late run
+# is still an honest one (its own capture_ts_utc records when it actually happened), and a
+# missed window is a gap, never a falsified row.
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      no_archive:
+        description: 'Skip the R2 upload'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write  # needed to commit the forecast log back
+
+# The forecast log is append-only with a gapless seq (invariant 5). Two concurrent runs
+# minting seq from the same chain would race, so runs are serialised and never cancelled
+# mid-write.
+concurrency:
+  group: forecast-log
+  cancel-in-progress: false
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python and dependencies
+        run: uv sync --frozen
+
+      - name: Run one forecast cycle
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          uv run python3 -m edgeledger.scheduled_run \
+            --data-dir data \
+            --summary-out run-summary.json \
+            ${{ inputs.no_archive && '--no-archive' || '' }}
+
+      - name: Publish the chain head
+        run: |
+          uv run python3 -c "
+          import json, pathlib
+          s = json.loads(pathlib.Path('run-summary.json').read_text())
+          pathlib.Path('docs/chain-head.json').write_text(json.dumps({
+              'head_hash': s['head_hash'],
+              'log_rows': s['log_rows'],
+              'as_of_utc': s['finished_utc'],
+          }, indent=2) + '\n')
+          "
+
+      - name: Commit the forecast log
+        run: |
+          git config user.name  'edgeledger-bot'
+          git config user.email 'noreply@github.com'
+
+          # Only the log and the published head. Bronze stays gitignored and goes to R2
+          # instead — .gitignore un-ignores exactly this one path, so no -f is needed and
+          # a stray bronze file cannot be staged by accident.
+          git add data/forecast_log.jsonl docs/chain-head.json
+
+          if git diff --cached --quiet; then
+            echo 'no new forecasts this cycle'
+            exit 0
+          fi
+
+          ROWS=$(uv run python3 -c "import json;print(json.load(open('run-summary.json'))['log_rows'])")
+          git commit -m "Forecast run: ${ROWS} rows in the log
+
+          Automated by .github/workflows/forecast.yml"
+
+          # Another run may have landed while this one was working; rebase onto it rather
+          # than force-pushing over a chain we did not write.
+          git pull --rebase --autostash origin master
+          git push origin HEAD:master
+
+      - name: Summary
+        if: always()
+        run: |
+          echo '### Forecast cycle' >> $GITHUB_STEP_SUMMARY
+          if [ -f run-summary.json ]; then
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat run-summary.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo 'No summary produced — the run failed before completing.' >> $GITHUB_STEP_SUMMARY
+          fi

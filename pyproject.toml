@@ -11,6 +11,7 @@ dependencies = [
     "deltalake>=0.18",
     "duckdb>=1.0",
     "apache-airflow>=2.9",
+    "boto3>=1.43.62",
 ]
 
 [dependency-groups]
