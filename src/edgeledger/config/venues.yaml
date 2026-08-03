@@ -1,0 +1,15 @@
+# Venue configuration — rate limits, base URLs, auth requirements.
+# STUB — week 1. Verify all values against live docs before use (both APIs shipped
+# breaking changes in the last year; see 05-Venues/Kalshi.md and Polymarket.md in the vault).
+
+kalshi:
+  base_url: https://external-api.kalshi.com/trade-api/v2
+  rate_limit_per_min: null  # TODO: confirm from live docs
+  orderbook_requires_auth: true
+
+polymarket:
+  gamma_base_url: https://gamma-api.polymarket.com
+  clob_base_url: https://clob.polymarket.com
+  data_base_url: https://data-api.polymarket.com
+  gamma_rate_limit_per_min: 60
+  clob_rate_limit_per_min: 100
