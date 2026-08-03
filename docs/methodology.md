@@ -28,6 +28,26 @@ runs exactly two deliberately naive models (see below); real models arrive from 
 
 Every later model (from month 5 onward) is judged against both.
 
+## Venue coverage
+
+Not every venue contributes every kind of data, and the asymmetry is reported rather than
+smoothed over:
+
+| Data | Kalshi | Polymarket |
+|---|---|---|
+| Markets, prices, trades, resolutions | yes | yes |
+| Orderbook depth | **no** | yes |
+
+Kalshi's depth endpoint is its only authenticated endpoint, and the account needed to obtain a
+key pair is not available to this project's operator — `kalshi.com` is blocked from Portugal by
+regulatory order, and Kalshi requires US residency. See
+[ADR-0002](adr/0002-polymarket-as-depth-venue.md) for the full reasoning and what was verified.
+
+The consequence for reading results: **any depth-derived metric** — effective spread,
+depth-weighted mid, slippage estimate, book imbalance — **covers Polymarket only, and says so
+wherever it is reported.** The headline scoring metrics below are unaffected, because they need
+prices, trades, and resolutions, all of which both venues supply unauthenticated.
+
 ## Scoring
 
 Scoring happens downstream, in the recomputable `forecast_scored` view

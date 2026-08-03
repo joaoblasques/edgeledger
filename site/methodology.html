@@ -54,6 +54,33 @@ honest floor.</p>
 
 <p>Every later model, from month 5 onward, is judged against both.</p>
 
+<h2>Venue coverage</h2>
+
+<p>Not every venue contributes every kind of data, and the asymmetry is reported rather than
+smoothed over.</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Data</th><th>Kalshi</th><th>Polymarket</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Markets, prices, trades, resolutions</td><td>yes</td><td>yes</td></tr>
+    <tr><td>Orderbook depth</td><td><strong>no</strong></td><td>yes</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Kalshi's depth endpoint is its only authenticated endpoint, and the account required to obtain
+a key pair is not available to this project's operator: <code>kalshi.com</code> is blocked from
+Portugal by regulatory order, and Kalshi requires US residency. Kalshi's <em>API</em> is not
+blocked, so it still supplies markets, trades, and resolutions.</p>
+
+<p>What this means when reading results: <strong>any depth-derived metric — effective spread,
+depth-weighted mid, slippage estimate, book imbalance — covers Polymarket only, and says so
+wherever it is reported.</strong> The scoring metrics below are unaffected, because they need
+prices, trades, and resolutions, which both venues supply without authentication.</p>
+
 <h2>Scoring</h2>
 
 <p>Scoring happens downstream, in the recomputable <code>forecast_scored</code> view, joining
