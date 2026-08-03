@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B1 — What a Model Is — EdgeLedger</title>
+<meta name="description" content="Where does a probability actually come from? EdgeLedger learning notes.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>B1 — What a Model Is</h1>
+  <p class="tagline">Track B — Modelling Foundations — <em>Where does a probability actually come from?</em></p>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="methodology.html">Methodology</a>
+    <a href="results.html">Results</a>
+    <a href="learning.html" aria-current="page">Learning</a>
+  </nav>
+</header>
+
+<main class="prose">
+<nav class="toc"><p><strong>On this page</strong></p>
+<ol>
+    <li><a href="#1-features-probability-the-mapping">1. Features → probability: the mapping</a></li>
+    <li><a href="#2-generative-vs-discriminative">2. Generative vs discriminative</a></li>
+    <li><a href="#3-signal-vs-noise">3. Signal vs noise</a></li>
+    <li><a href="#4-bias-variance-decomposition">4. Bias-variance decomposition</a></li>
+    <li><a href="#5-why-log-odds-is-the-natural-space">5. Why log-odds is the natural space</a></li>
+    <li><a href="#check-yourself">Check yourself</a></li>
+</ol></nav>
+<h1 id="b1-what-a-model-is">B1 — What a Model Is</h1>
+<p><strong>Core question: why does a model beat a guess?</strong></p>
+<p>A model is a function from things you can observe to a probability of something you can't yet
+observe. That's the whole definition. Everything interesting is in the qualifiers: <em>which</em>
+observables, <em>when</em> they were observable, how the function is chosen, and — the question that
+decides whether any of it was worth doing — whether the function found structure that will persist
+or memorised noise that won't.</p>
+<p>This note builds the vocabulary you need before B2 (baselines) tells you what you're competing
+against and B3 (regression) shows you how the mapping is actually fitted. It also justifies the
+choice of output space that the rest of Track B assumes without comment: log-odds.</p>
+<hr />
+<h2 id="1-features-probability-the-mapping">1. Features → probability: the mapping</h2>
+<h3 id="intuition">Intuition</h3>
+<p>Strip away the machinery and a model is three things:</p>
+<ol>
+<li><strong>A feature vector</strong> <span class="math-inline">x</span> — the numbers you extracted from the world at a specific moment.</li>
+<li><strong>A functional form</strong> <span class="math-inline">f</span> — the shape of the relationship you're willing to entertain.</li>
+<li><strong>Parameters</strong> <span class="math-inline">θ</span> — the specific numbers within that shape, chosen by fitting to data.</li>
+</ol>
+<div class="math-block">p̂ = f(x; θ)</div>
+<p>In prose: your predicted probability is what you get when you push your observed features through
+a chosen function, using parameters learned from history. Nothing more mysterious than that.</p>
+<p>The reason a model beats a guess is not that it's clever. It's that it applies the <em>same</em> mapping
+to every case, so its errors are measurable and correctable. A guess is a different function every
+time — it can't be scored, can't be calibrated, can't be debugged. A model that is <em>worse</em> than a
+guess on average is still more valuable to a desk, because you can find out by how much and in
+which direction.</p>
+<p>This is worth being blunt about, because it is the reason EdgeLedger's month-1 models are
+deliberately terrible. <code>market_mirror</code> copies the market and <code>base_rate</code> returns a historical
+frequency. Neither has edge by construction. Both are <em>models</em>: deterministic, versioned functions
+with recorded inputs and recorded outputs. That property — not accuracy — is what makes the log
+worth twelve months.</p>
+<h3 id="the-maths">The maths</h3>
+<p>Being precise about what's fixed and what's learned matters more than it looks.</p>
+<ul>
+<li><span class="math-inline">x ∈ R<sup>d</sup></span> — the feature vector, computed at forecast time.</li>
+<li><span class="math-inline">θ</span> — parameters, fitted once on training data and then <strong>frozen</strong> for the forecast.</li>
+<li><span class="math-inline">y ∈ 0, 1</span> — the realised outcome, known only after resolution.</li>
+<li><span class="math-inline">p̂ = f(x; θ) ∈ (0,1)</span> — the forecast.</li>
+</ul>
+<p>The <strong>training</strong> step chooses <span class="math-inline">θ</span> to minimise a loss over historical pairs <span class="math-inline">(xᵢ, yᵢ)</span>:</p>
+<div class="math-block">θ̂ = argmin<sub>θ</sub> ∑ᵢ₌₁ⁿ L(yᵢ,  f(xᵢ; θ))</div>
+<p>In prose: search the parameter space for the setting that made the smallest total error on the
+data you've already seen. For binary outcomes <span class="math-inline">L</span> is usually log loss (equivalently, maximising
+likelihood) or Brier score.</p>
+<p>The <strong>inference</strong> step is then trivial: plug in a new <span class="math-inline">x</span>, get <span class="math-inline">p̂</span> out. The asymmetry is
+important — training is expensive and happens rarely; inference is cheap and happens constantly.
+EdgeLedger's <code>model_version</code> field exists precisely to record which frozen <span class="math-inline">θ</span> produced a
+given row.</p>
+<h3 id="worked-example">Worked example</h3>
+<p>Kalshi: <em>"Will Team A win?"</em> Suppose a two-feature model:</p>
+<ul>
+<li><span class="math-inline">x₁</span> = Elo rating difference / 400 = <strong>0.25</strong></li>
+<li><span class="math-inline">x₂</span> = home indicator = <strong>1</strong></li>
+</ul>
+<p>Logistic form (B3 will fit this properly):</p>
+<div class="math-block">z = β₀ + β₁ x₁ + β₂ x₂ = -0.05 + 2.20(0.25) + 0.35(1) = 0.850</div>
+<div class="math-block">p̂ = σ(0.850) = 1/(1 + e<sup>-0.850</sup>) = 0.7006</div>
+<p>So <span class="math-inline">p̂ = 0.70</span>. The market shows 0.66 / 0.68, mid 0.67. Your <code>edge</code> field:
+$0.70 - 0.67 = +0.03$.</p>
+<p>Notice what got logged in <code>ForecastLogRow</code> and why each field is there:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+<th>Why it must be recorded</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>p_hat</code></td>
+<td>0.7006</td>
+<td>the claim</td>
+</tr>
+<tr>
+<td><code>feature_vector</code></td>
+<td><code>{"elo_diff_norm": 0.25, "is_home": 1}</code></td>
+<td>so the claim is reproducible</td>
+</tr>
+<tr>
+<td><code>feature_set_version</code></td>
+<td><code>v1</code></td>
+<td>features change; the log must know which definition</td>
+</tr>
+<tr>
+<td><code>model_version</code></td>
+<td><code>1.0.0</code></td>
+<td><span class="math-inline">θ</span> changed → different model, same name</td>
+</tr>
+<tr>
+<td><code>code_git_sha</code></td>
+<td><code>b22898e…</code></td>
+<td>the <span class="math-inline">f</span> itself changed</td>
+</tr>
+<tr>
+<td><code>feature_cutoff_ts_utc</code></td>
+<td>2026-08-03T14:00:00Z</td>
+<td>which world-state <span class="math-inline">x</span> came from</td>
+</tr>
+<tr>
+<td><code>mkt_yes_mid</code></td>
+<td>0.67</td>
+<td>captured now, never joined later (invariant 2)</td>
+</tr>
+</tbody>
+</table></div>
+<p>A forecast without those seven things is an opinion. With them, it's an experiment.</p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> The value of a research function isn't the model, it's the
+<em>record</em> of the model's claims. Any desk can generate probabilities. The one that can answer
+"what did version 1.2.0 say about this market class in Q2, and what were its inputs" is the one
+that can improve. Everyone else is re-running the same mistakes with new hyperparameters.</p>
+</blockquote>
+<hr />
+<h2 id="2-generative-vs-discriminative">2. Generative vs discriminative</h2>
+<h3 id="intuition_1">Intuition</h3>
+<p>Two fundamentally different attacks on the same problem.</p>
+<p>A <strong>discriminative</strong> model learns the boundary directly: given these features, what's the
+probability of Yes? It never asks how the features came to be. Logistic regression is the
+canonical example — it models <span class="math-inline">P(y | x)</span> and nothing else.</p>
+<p>A <strong>generative</strong> model learns the mechanism: what process produces outcomes in this domain, and
+what does that process imply about this particular event? A Poisson goal-scoring model doesn't
+learn "what's the probability of a home win" — it learns the rate at which each team scores, then
+<em>simulates</em> matches and counts how often the home team ends up ahead.</p>
+<p>The trade is real and it's not a matter of taste:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>Discriminative</th>
+<th>Generative</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Models</td>
+<td><span class="math-inline">P(y | x)</span></td>
+<td><span class="math-inline">P(x, y)</span> or the data-generating process</td>
+</tr>
+<tr>
+<td>Data efficiency</td>
+<td>needs more</td>
+<td>needs less (structure substitutes for data)</td>
+</tr>
+<tr>
+<td>If structure is right</td>
+<td>fine</td>
+<td>better</td>
+</tr>
+<tr>
+<td>If structure is wrong</td>
+<td>fine</td>
+<td>badly wrong, confidently</td>
+</tr>
+<tr>
+<td>Derived markets</td>
+<td>one model per market</td>
+<td><strong>one model, all markets</strong></td>
+</tr>
+<tr>
+<td>Interpretability</td>
+<td>coefficients</td>
+<td>mechanism parameters</td>
+</tr>
+</tbody>
+</table></div>
+<p>The last row is the one that matters commercially and it's why Track B has both B3 and B4.</p>
+<h3 id="the-maths_1">The maths</h3>
+<p><strong>Discriminative:</strong> parameterise the conditional directly.</p>
+<div class="math-block">P(y = 1 | x) = σ(β^→p x)</div>
+<p>In prose: assume the log-odds of the outcome is a linear function of the features, and fit the
+weights. You have learned nothing about the distribution of <span class="math-inline">x</span> — you couldn't generate a
+plausible new match from this model, and you don't need to.</p>
+<p><strong>Generative:</strong> parameterise the process, then derive.</p>
+<div class="math-block">G<sub>home</sub> ∼ Poisson(λ<sub>H</sub>),     G<sub>away</sub> ∼ Poisson(λ<sub>A</sub>)</div>
+<div class="math-block">λ<sub>H</sub> = exp(μ + att<sub>H</sub> - def<sub>A</sub> + γ),     λ<sub>A</sub> = exp(μ + att<sub>A</sub> - def<sub>H</sub>)</div>
+<p>In prose: assume each team's goal count is Poisson-distributed with a rate driven by its attacking
+strength, the opponent's defensive strength, a baseline, and a home advantage <span class="math-inline">γ</span>. The
+exponential keeps rates positive. Fit the attack/defence parameters to historical scorelines.</p>
+<p>Then <strong>every</strong> market is a query against the fitted joint distribution:</p>
+<div class="math-block">P(home win) = ∑<sub>h &gt; a</sub> P(G<sub>H</sub> = h) P(G<sub>A</sub> = a)</div>
+<div class="math-block">P(over  2.5) = P(G<sub>H</sub> + G<sub>A</sub> ≥ 3),     P(both score) = P(G<sub>H</sub> ≥ 1) P(G<sub>A</sub> ≥ 1)</div>
+<p>In prose: sum the joint probability over every scoreline satisfying the condition. One fitted model
+answers home/draw/away, totals, both-teams-to-score, correct score, and any exotic you're later
+asked to price — from the same parameters.</p>
+<h3 id="worked-example_1">Worked example</h3>
+<p>Fitted rates: <span class="math-inline">λ<sub>H</sub> = 1.6</span>, <span class="math-inline">λ<sub>A</sub> = 1.1</span>.</p>
+<p>Poisson pmf: <span class="math-inline">P(G = k) = e<sup>-λ</sup>λ<sup>k</sup> / k!</span> — in prose, the probability of exactly <span class="math-inline">k</span>
+events when events arrive independently at average rate <span class="math-inline">λ</span>.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th><span class="math-inline">k</span></th>
+<th><span class="math-inline">P(G<sub>H</sub> = k)</span></th>
+<th><span class="math-inline">P(G<sub>A</sub> = k)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>0.2019</td>
+<td>0.3329</td>
+</tr>
+<tr>
+<td>1</td>
+<td>0.3230</td>
+<td>0.3662</td>
+</tr>
+<tr>
+<td>2</td>
+<td>0.2584</td>
+<td>0.2014</td>
+</tr>
+<tr>
+<td>3</td>
+<td>0.1378</td>
+<td>0.0738</td>
+</tr>
+<tr>
+<td>4</td>
+<td>0.0551</td>
+<td>0.0203</td>
+</tr>
+<tr>
+<td>≥5</td>
+<td>0.0237</td>
+<td>0.0053</td>
+</tr>
+</tbody>
+</table></div>
+<p>Derived markets, all from those same two numbers:</p>
+<ul>
+<li><strong>Home win</strong> <span class="math-inline">P(G<sub>H</sub> &gt; G<sub>A</sub>) ≈ 0.4585</span></li>
+<li><strong>Draw</strong> <span class="math-inline">≈ 0.2408</span></li>
+<li><strong>Away win</strong> <span class="math-inline">≈ 0.3007</span></li>
+<li><strong>Over 2.5 goals</strong> <span class="math-inline">P(G<sub>H</sub> + G<sub>A</sub> ≥ 3)</span>: the sum is Poisson(2.7), so
+  $1 - e^{-2.7}(1 + 2.7 + 2.7^2/2) = 1 - 0.0672(1 + 2.7 + 3.645) = 1 - 0.4936 = \mathbf{0.5064}$</li>
+<li><strong>Both teams score</strong> <span class="math-inline">(1 - 0.2019)(1 - 0.3329) = 0.7981 × 0.6671 = <strong>0.5324</strong></span></li>
+</ul>
+<p>Four contracts priced from two parameters, all mutually consistent by construction. A
+discriminative approach needs four separate models and gives you no guarantee they cohere — you can
+easily end up with a home-win probability and a correct-score distribution that contradict each
+other, which is both embarrassing and arbitrageable against you.</p>
+<p>The catch, and it's serious: the Poisson model assumes goals are independent and that scoring
+intensity is constant through the match. Both are false. Low-scoring matches (0-0, 1-0, 1-1) occur
+more often than Poisson predicts, which is exactly what the <strong>Dixon-Coles adjustment</strong> (B4) exists
+to correct. Get the structure wrong and a generative model doesn't degrade gracefully — it produces
+confident nonsense in a specific, systematic region of the outcome space.</p>
+<h3 id="the-edgeledger-link">The EdgeLedger link</h3>
+<p>The roadmap runs discriminative-first for good reason. <strong>B3 (logistic regression, months 5–6)</strong> is
+discriminative — hard to get catastrophically wrong, easy to validate, honest about what it doesn't
+know. <strong>B4 (Poisson / Dixon-Coles, months 6–7)</strong> is generative and unlocks the "simulate once,
+price every derived market" capability that is genuinely differentiating on an event-contract desk
+listing dozens of correlated contracts per game.</p>
+<p>Building B4 before B3 would be building the higher-variance thing before you have the
+lower-variance thing to check it against. The ordering is a risk decision, not a curriculum
+convenience.</p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> A desk quoting 30 contracts on one game cannot afford 30
+independent models — they'd be mutually inconsistent and the inconsistencies are precisely what
+sharp counterparties trade against. The generative model is the answer to "why is our
+correct-score book consistent with our totals book?" But the discriminative model is what you
+ship first, because it fails visibly rather than silently.</p>
+</blockquote>
+<hr />
+<h2 id="3-signal-vs-noise">3. Signal vs noise</h2>
+<h3 id="intuition_2">Intuition</h3>
+<p>Every observed outcome is structure plus randomness:</p>
+<div class="math-block">observed = signal + noise</div>
+<p>Signal is the part that would repeat if you could re-run the world. Noise is the part that
+wouldn't. The forecaster's entire job is separating them — and the difficulty is that noise, by
+construction, looks exactly like signal in-sample. That's what makes it noise.</p>
+<p>The trap specific to this domain: sports and event outcomes are <em>extremely</em> noisy. The best team
+loses to the worst team routinely. A model that explains 60% of the variance in match outcomes
+doesn't exist and never will, because most of the variance genuinely isn't explainable — a
+deflection, a red card, a referee decision. The irreducible noise floor is high.</p>
+<p>Which flips the goal on its head. You are not trying to predict outcomes well. <strong>You are trying to
+predict them slightly better than the market does.</strong> A model with an R² of 0.06 that beats a market
+consensus with an R² of 0.05 is a fantastic model. A model with an R² of 0.30 that beats nothing is
+worthless. Absolute accuracy is not the objective, which is exactly what invariant 6 encodes.</p>
+<h3 id="the-maths_2">The maths</h3>
+<p>Decompose the expected squared error of a forecast <span class="math-inline">p̂</span> against the truth <span class="math-inline">y</span>:</p>
+<div class="math-block">E[(y - p̂)²] = E[(y - p^*)²]<sub>irreducible</sub> + (p^* - p̂)²<sub>your error</sub></div>
+<p>where <span class="math-inline">p^*</span> is the true conditional probability given all available information.</p>
+<p>In prose: your total squared error splits into two pieces. The first is the randomness inherent in
+a binary outcome even if you knew the true probability exactly — it equals <span class="math-inline">p^*(1-p^*)</span> and no
+model can reduce it. The second is how far your forecast sits from the truth, and it's the only
+part you control.</p>
+<p>Concretely: if the true probability is 0.55, then even a perfect forecaster has expected Brier
+score $0.55 \times 0.45 = 0.2475$. A Brier of 0.24 is not evidence of a bad model. It might be a
+<em>perfect</em> model. This is why a raw Brier score in isolation is uninterpretable, and why
+<code>brier_market</code> must sit next to it.</p>
+<p>The <strong>skill score</strong> normalises this away:</p>
+<div class="math-block">Skill = 1 - Brier<sub>model</sub>/Brier<sub>baseline</sub></div>
+<p>In prose: what fraction of the baseline's error did you remove? Positive means you beat the
+baseline; zero means you matched it; negative means you'd have done better copying it.</p>
+<h3 id="worked-example_2">Worked example</h3>
+<p>100 resolved Polymarket contracts. Your model and the market both forecast each one.</p>
+<ul>
+<li>Model Brier: <strong>0.2380</strong></li>
+<li>Market Brier: <strong>0.2410</strong></li>
+<li>Skill score: $1 - 0.2380/0.2410 = \mathbf{0.0124}$</li>
+</ul>
+<p>You removed 1.24% of the market's error. That sounds like nothing. In this business it would be
+excellent — <em>if it's real</em>.</p>
+<p>Is it? The per-forecast Brier difference has a standard deviation of, say, 0.11 in this sample. The
+standard error of the mean difference over <span class="math-inline">n = 100</span> is <span class="math-inline">0.11/√(100) = 0.011</span>. Your observed
+mean difference is 0.0030. That's <span class="math-inline">0.0030/0.011 = 0.27</span> standard errors from zero.</p>
+<p><strong>You have no evidence of anything.</strong> You'd need roughly $n = (2 \times 0.11 / 0.0030)^2 \approx
+5{,}400$ resolved forecasts to detect a difference this size at two standard errors.</p>
+<p>This calculation is the reason EdgeLedger is a twelve-month project rather than a weekend one, and
+the reason the log starts in month 1 with models that are <em>known</em> to have no edge. You cannot
+compress the sample-size requirement by having a better idea. The clock is the binding constraint,
+so you start the clock first and improve the model while it runs.</p>
+<h3 id="the-edgeledger-link_1">The EdgeLedger link</h3>
+<p>Invariant 6 — <em>every metric reported against the market baseline</em> — is this section compiled into
+a rule. And <code>market_mirror</code> is the diagnostic that makes it enforceable: since it copies
+<code>mkt_yes_mid</code> exactly, its Brier score <em>must</em> be statistically indistinguishable from
+<code>brier_market</code>. If it isn't, the bug is in the pipeline — a timestamp misalignment, a resolution
+join error, a de-vig inconsistency — not in the model. It's a null-hypothesis canary for the
+measurement layer itself, which is a genuinely unusual thing to build and exactly the kind of
+detail that reads as serious to a hiring desk.</p>
+<p><strong>B6 (validation, months 9–10)</strong> is where this becomes adversarial. The track README already flags
+it as the highest-value rung, and the reason is this section: when signal is scarce and noise is
+abundant, any sufficiently flexible search will find something. Deflated Sharpe, walk-forward
+validation, and multiple-comparison correction (A3) all exist to answer one question — <em>is the
+thing I found signal, or did I try enough things that noise was bound to look like signal
+eventually?</em></p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> The failure mode isn't a model that doesn't work. It's a model
+that worked in backtest for reasons nobody understood, deployed at size, and reverted. A
+researcher whose first instinct on seeing a good result is "how many observations, and what's the
+standard error" is the one you can trust with capital.</p>
+</blockquote>
+<hr />
+<h2 id="4-bias-variance-decomposition">4. Bias-variance decomposition</h2>
+<h3 id="intuition_3">Intuition</h3>
+<p>Two ways to be wrong, and reducing one usually increases the other.</p>
+<p><strong>Bias</strong> is being systematically wrong — your functional form can't represent reality. A linear
+model on a genuinely curved relationship is biased no matter how much data you feed it. It's wrong
+in the same direction every time.</p>
+<p><strong>Variance</strong> is being unstable — refit on a different sample and you get a materially different
+model. A deep tree with 40 features on 300 matches has low bias and enormous variance: it fits this
+sample beautifully and the next one badly, because it fitted the sample's noise.</p>
+<p>The intuition that makes this stick: bias is <em>underfitting</em> (too simple to see the pattern),
+variance is <em>overfitting</em> (complex enough to see patterns that aren't there). Model complexity is
+the dial between them, and it has an interior optimum, not a monotone one.</p>
+<h3 id="the-maths_3">The maths</h3>
+<p>For squared error, expected over training sets <span class="math-inline">D</span>:</p>
+<div class="math-block">E<sub>D</sub>[(y - f̂(x))²] = (E<sub>D</sub>[f̂(x)] - f^*(x))²<sub>Bias²</sub> + E<sub>D</sub>[(f̂(x) - E<sub>D</sub>[f̂(x)])²]<sub>Variance</sub> + σ²<sub>Irreducible</sub></div>
+<p>In prose, three terms:</p>
+<ol>
+<li><strong>Bias²</strong> — take the average prediction your procedure makes across all possible training sets,
+   and see how far that average sits from the truth. Systematic offset. More data doesn't help.</li>
+<li><strong>Variance</strong> — how much your prediction bounces around that average as the training set
+   changes. Instability. More data <em>does</em> help, because it damps the bounce.</li>
+<li><strong>Irreducible error</strong> — section 3's noise floor. Nothing helps.</li>
+</ol>
+<p>The critical structural point: <strong>bias and variance both contribute to error as squares, and
+complexity trades them against each other.</strong> Total error as a function of complexity is U-shaped.
+Both ends are bad. The left end feels safe and isn't.</p>
+<h3 id="worked-example_3">Worked example</h3>
+<p>Forecasting home wins. Ground truth: <span class="math-inline">p^* = 0.62</span> for this fixture profile. Three approaches, each
+refit on 5 different 200-match samples:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Predictions across the 5 samples</th>
+<th>Mean</th>
+<th>Bias</th>
+<th>Bias²</th>
+<th>Variance</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A</strong> Global base rate</td>
+<td>0.54, 0.54, 0.55, 0.54, 0.54</td>
+<td>0.542</td>
+<td>−0.078</td>
+<td>0.00608</td>
+<td>0.00002</td>
+</tr>
+<tr>
+<td><strong>B</strong> Logistic, 3 features</td>
+<td>0.60, 0.63, 0.59, 0.62, 0.61</td>
+<td>0.610</td>
+<td>−0.010</td>
+<td>0.00010</td>
+<td>0.00020</td>
+</tr>
+<tr>
+<td><strong>C</strong> Boosted trees, 40 features</td>
+<td>0.71, 0.48, 0.66, 0.55, 0.74</td>
+<td>0.628</td>
+<td>+0.008</td>
+<td>0.00006</td>
+<td>0.01018</td>
+</tr>
+</tbody>
+</table></div>
+<p>Reducible error (Bias² + Variance):</p>
+<ul>
+<li><strong>A:</strong> 0.00610 — nearly all bias. Rock stable, systematically 8 points too low. Underfit.</li>
+<li><strong>B:</strong> 0.00030 — <strong>best.</strong> Small bias, small variance.</li>
+<li><strong>C:</strong> 0.01024 — nearly all variance. Its <em>average</em> prediction is the most accurate of the three
+  (bias 0.008!) and it is the worst model by a factor of 34. Any single fit of C could be 0.48 or
+  0.74 against a truth of 0.62 — a 26-point spread.</li>
+</ul>
+<p>Model C is the one that produces a beautiful backtest. It is also the one that loses money. And
+note that its bias — the thing that looks like accuracy — is genuinely excellent. Averaging over
+training sets is not something you get to do in production; you get one fit.</p>
+<p>Two levers move C leftward:</p>
+<ul>
+<li><strong>Regularisation</strong> (B3): an L2 penalty <span class="math-inline">λ ∑ βⱼ²</span> shrinks coefficients toward zero.
+  In prose: you're telling the fit that large weights must earn their keep against a penalty, which
+  deliberately introduces a little bias to buy a lot of variance reduction. L1 ($\lambda \sum
+  |\beta_j|$) additionally drives weights exactly to zero, doing feature selection as a side
+  effect.</li>
+<li><strong>Hierarchical pooling</strong> (B5): shrink each team's estimate toward the league mean in proportion
+  to how little data that team has. Same trade, applied per-parameter rather than globally, and
+  it's a Bayesian posterior rather than a penalty — see A1 §3.</li>
+</ul>
+<h3 id="the-edgeledger-link_2">The EdgeLedger link</h3>
+<p>This decomposition is the <em>reason</em> the roadmap is ordered the way it is. <strong>B2's rule — never build
+a model without beating a baseline first</strong> — is a bias-variance statement: the baseline is the
+maximally-biased, minimally-variant option, and if your low-bias model can't beat it out-of-sample,
+its variance is eating the bias reduction and then some.</p>
+<p><code>base_rate</code> v1.0.0 is model A above, in the repo, from month 1. It's the honest floor. Every later
+model has to clear it <em>and</em> the market, and the log makes both comparisons computable at any point
+in the twelve months rather than asserted at the end.</p>
+<p><strong>B6</strong> then supplies the only reliable measurement of variance: out-of-sample, time-ordered
+evaluation. In-sample error measures bias and <em>rewards</em> variance, which is why an in-sample number
+is worse than no number — it's a number pointing the wrong way.</p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> Every quant interview includes some version of "your backtest
+looks great, why don't I believe it?" The answer is this section. And the practical desk instinct
+that follows from it — that a simple model you understand, sized appropriately, beats a complex
+model you don't — is not conservatism, it's the U-curve.</p>
+</blockquote>
+<hr />
+<h2 id="5-why-log-odds-is-the-natural-space">5. Why log-odds is the natural space</h2>
+<h3 id="intuition_4">Intuition</h3>
+<p>Four independent arguments converge on the same answer, which is usually a sign the answer isn't
+arbitrary.</p>
+<p><strong>Argument 1 — the range problem.</strong> Probability lives in [0,1]. Linear models produce outputs in
+<span class="math-inline">(-∞, ∞)</span>. Fitting a linear model directly to a probability produces predictions like
+1.15 and −0.08, which you then have to clamp, and the clamping is a lie that hides how wrong the
+model is. Log-odds is unbounded, so a linear model in log-odds space can never produce an illegal
+probability. The sigmoid guarantees it.</p>
+<p><strong>Argument 2 — evidence is additive here.</strong> From A1 §3: Bayes in odds space is multiplication, and
+in log-odds space it's addition. So "combine independent pieces of evidence" is literally a sum in
+log-odds. A model of the form <span class="math-inline">z = β₀ + ∑ βᵢ xᵢ</span> isn't a convenient approximation —
+it's what Bayesian evidence accumulation <em>looks like</em> when each feature contributes independently.
+The linear form is derived, not assumed.</p>
+<p><strong>Argument 3 — uniform sensitivity.</strong> In probability space, moving from 0.50 to 0.55 and from 0.95
+to 1.00 are both "+0.05", but the second is impossible and the first is routine. In log-odds, equal
+steps mean equal changes in evidential weight everywhere on the scale. Distances become meaningful,
+which matters enormously for anything involving averaging, distance, or gradients.</p>
+<p><strong>Argument 4 — the loss function agrees.</strong> The natural loss for binary outcomes is log loss.
+Fitting a logistic model by maximum likelihood under log loss gives a gradient of
+<span class="math-inline">(p̂ - y) x</span> — the residual times the feature. Clean, convex, single global optimum. The
+parameterisation and the loss are matched; that's not a coincidence, it's the exponential family
+doing its job.</p>
+<h3 id="the-maths_4">The maths</h3>
+<p>The <strong>logit link</strong> and its inverse:</p>
+<div class="math-block">z = logit(p) = logp/(1-p),     p = σ(z) = 1/(1+e<sup>-z</sup>)</div>
+<p>In prose: the logit maps a probability onto the whole real line by taking the log of the odds; the
+sigmoid maps it back. They're exact inverses, both monotone, both smooth.</p>
+<p><strong>Logistic regression</strong> is then just a linear model in that space:</p>
+<div class="math-block">logp̂/(1-p̂) = β₀ + β₁ x₁ + … + β<sub>d</sub> x<sub>d</sub></div>
+<p>In prose: the log-odds of the outcome is a weighted sum of the features plus an intercept. Each
+<span class="math-inline">βᵢ</span> answers: <em>how much does the log-odds move per unit of <span class="math-inline">xᵢ</span>, holding everything else
+fixed?</em> Exponentiating gives the <strong>odds ratio</strong> — <span class="math-inline">e<sup>βᵢ</sup></span> is the multiplicative effect on the
+odds, which is how the coefficient becomes speakable in English.</p>
+<p><strong>Log loss:</strong></p>
+<div class="math-block">L = -[ylogp̂ + (1-y)log(1-p̂)]</div>
+<p>In prose: if the outcome is 1, you're penalised by the negative log of the probability you assigned
+to 1; if 0, by the negative log of the probability you assigned to 0. Because <span class="math-inline">-log</span> blows up near
+zero, being confidently wrong is punished savagely — assigning 0.01 to something that happens costs
+you 4.61, versus 0.69 for a coin-flip forecast. That asymmetry is why log loss and Brier disagree
+about tail behaviour and why methodology.md reports both.</p>
+<p><strong>Blending in log-odds</strong> (logarithmic opinion pooling, B7):</p>
+<div class="math-block">z<sub>blend</sub> = w z<sub>model</sub> + (1-w) z<sub>market</sub></div>
+<p>In prose: take a weighted average of the log-odds, not of the probabilities. This is a geometric
+mean of the odds, and it behaves correctly at the tails where the arithmetic mean of probabilities
+does not.</p>
+<h3 id="worked-example_4">Worked example</h3>
+<p>Take our long shot: market shows <strong>0.0455</strong> for Yes.</p>
+<div class="math-block">z<sub>mkt</sub> = log(0.0455 / 0.9545) = -3.043</div>
+<p>Your logistic model returns <span class="math-inline">z<sub>model</sub> = -2.400</span>, i.e. <span class="math-inline">p̂ = 0.0832</span>.</p>
+<p><strong>Blend at <span class="math-inline">w = 0.3</span> (30% model, 70% market — appropriate humility for month 5).</strong></p>
+<p><em>In log-odds:</em>
+</p><div class="math-block">z = 0.3(-2.400) + 0.7(-3.043) = -0.720 - 2.130 = -2.850   ⇒   p̂ = σ(-2.850) = <strong>0.0547</strong></div>
+<p><em>In probability space, for contrast:</em>
+</p><div class="math-block">0.3(0.0832) + 0.7(0.0455) = 0.02496 + 0.03185 = <strong>0.0568</strong></div>
+<p>A 0.21-point difference on a 5c contract — about 4% relative. Modest here. Now push the model to a
+genuinely confident <span class="math-inline">p̂ = 0.30</span> (<span class="math-inline">z = -0.847</span>):</p>
+<ul>
+<li>Log-odds blend: <span class="math-inline">0.3(-0.847) + 0.7(-3.043) = -2.384 ⇒ <strong>0.0844</strong></span></li>
+<li>Probability blend: <span class="math-inline">0.3(0.30) + 0.7(0.0455) = <strong>0.1219</strong></span></li>
+</ul>
+<p>Now the gap is 3.75 points on a contract the market prices at 4.55c — the arithmetic blend is
+<strong>44% higher</strong>. The probability-space blend lets the confident model drag the price up almost
+linearly; the log-odds blend requires the model to overcome the market's strong evidential position
+against, which is the correct behaviour. At the tails, arithmetic averaging systematically
+over-weights whichever opinion is closer to 0.5.</p>
+<p><strong>Reading coefficients.</strong> A fitted <span class="math-inline">β<sub>is<sub>h</sub>ome</sub> = 0.35</span> means the odds ratio is
+<span class="math-inline">e<sup>0.35</sup> = 1.42</span>: playing at home multiplies the odds of winning by 1.42, everywhere on the scale.
+At <span class="math-inline">p = 0.50</span> (odds 1.00) that takes you to odds 1.42, i.e. <span class="math-inline">p = 0.587</span> — a 8.7-point move. At
+<span class="math-inline">p = 0.0455</span> (odds 0.0477) it takes you to odds 0.0677, i.e. <span class="math-inline">p = 0.0634</span> — a 1.8-point move but a
+39% relative one. <strong>One coefficient, correctly context-sensitive, with no special-casing.</strong> Try
+expressing "home advantage" as an additive probability bump and you'll need a different number for
+every price level and you'll still produce values above 1 somewhere.</p>
+<h3 id="the-edgeledger-link_3">The EdgeLedger link</h3>
+<ul>
+<li><strong>B3</strong> fits in log-odds. Every coefficient it emits is a log-odds quantity, and the
+  <code>feature_vector</code> stored in <code>forecast_log</code> is the <span class="math-inline">x</span> that got multiplied by them. Reproducing any
+  historical forecast is a dot product away.</li>
+<li><strong>B7</strong> blends in log-odds, per the worked example. Shrinking toward market price is the single
+  most reliable improvement available to a young model, and it only behaves sensibly in this space.</li>
+<li><strong>A1 §5</strong> established the conversions; this section is why you'll live in them.</li>
+<li><code>p_hat</code> is stored as a <code>Decimal</code> in [0,1], not as log-odds, and that's correct: the log is the
+  <em>working</em> space, the probability is the <em>contract</em> space — it's what resolves, what scores, and
+  what a price is. The schema stores the thing being claimed, not the intermediate representation.
+  Note the boundary condition that forces this: <span class="math-inline">p̂ = 0</span> or <span class="math-inline">1</span> has infinite log-odds and
+  infinite log loss, so any model that can emit exactly 0 or 1 needs clipping before scoring.</li>
+</ul>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> "The injury is worth 30 basis points" is unanswerable without
+knowing the current price. "The injury is worth −0.4 log-odds" is a complete statement that
+applies at any price. Desks that quantify news impact in log-odds can accumulate a library of
+reusable adjustments; desks that quantify it in cents are re-deriving the same fact for every
+market.</p>
+</blockquote>
+<hr />
+<h2 id="check-yourself">Check yourself</h2>
+<p>Six exercises. Numbers are real; work them before opening the answers.</p>
+<p><strong>1.</strong> A logistic model has <span class="math-inline">β₀ = -0.30</span>, <span class="math-inline">β<sub>elo</sub> = 2.10</span>,
+<span class="math-inline">β<sub>restₐdv</sub> = 0.18</span>. For a fixture with normalised Elo difference 0.42 and rest
+advantage 2 days, compute <span class="math-inline">z</span> and <span class="math-inline">p̂</span>. The market shows bid 0.58, ask 0.62 — what goes in the
+<code>edge</code> field?</p>
+<p><strong>2.</strong> Fitted Poisson rates <span class="math-inline">λ<sub>H</sub> = 1.9</span>, <span class="math-inline">λ<sub>A</sub> = 0.8</span>. Compute <span class="math-inline">P(0-0)</span>,
+<span class="math-inline">P(under 2.5 goals)</span>, and <span class="math-inline">P(away team keeps a clean sheet)</span>. State one assumption
+this model makes that is empirically false, and name the adjustment that fixes it.</p>
+<p><strong>3.</strong> Two models, evaluated by refitting on 4 disjoint samples. Model P predicts 0.48, 0.51, 0.49,
+0.50; Model Q predicts 0.38, 0.67, 0.44, 0.71. True probability is 0.55. Compute bias², variance
+and total reducible error for each. Which would you deploy, and what does the answer say about how
+much you should trust a single impressive backtest?</p>
+<p><strong>4.</strong> Your model has <span class="math-inline">p̂ = 0.12</span>; the market (de-vigged) is at 0.06. Blend at <span class="math-inline">w = 0.25</span> in
+log-odds space and in probability space. Report both, and the relative difference. Which is the
+defensible number and why?</p>
+<p><strong>5.</strong> Over 400 resolved forecasts your Brier is 0.2205 and the market's is 0.2240. The per-forecast
+Brier difference has standard deviation 0.095. Compute the skill score and the t-statistic. What do
+you write in the monthly update, and what is the smallest true edge you'd have been able to detect
+here?</p>
+<p><strong>6.</strong> <code>market_mirror</code> posts a Brier of 0.2311 over the same window where <code>brier_market</code> is 0.2240.
+By construction these should be equal. List three specific pipeline defects that would produce
+exactly this signature, and say which invariant each one violates.</p>
+<details><summary>Worked answers</summary>
+<p><strong>1.</strong> <span class="math-inline">z = -0.30 + 2.10(0.42) + 0.18(2) = -0.30 + 0.882 + 0.36 = <strong>0.942</strong></span>.</p>
+<p><span class="math-inline">p̂ = σ(0.942) = 1/(1 + e<sup>-0.942</sup>) = 1/(1 + 0.3899) = <strong>0.7195</strong></span>.</p>
+<p>Market mid <span class="math-inline">= (0.58 + 0.62)/2 = 0.60</span>. <code>edge</code> <span class="math-inline">= 0.7195 - 0.60 = <strong>+0.1195</strong></span>.</p>
+<p>That is a <strong>12-point</strong> claim of edge against a liquid market. Treat it as a bug report, not a
+signal. At month 5 the realistic prior on a 12-point disagreement is: leakage in a feature (does
+<code>rest_adv</code> use the actual rest, knowable pre-game, or something derived from the played match?),
+a stale <code>mkt_yes_mid</code>, or a coefficient fitted on a sample that included this fixture. Invariant 3
+and <code>tests/test_point_in_time.py</code> exist because this is the <em>expected</em> first explanation. Edges
+this size in efficient markets are almost always your own error looking back at you.</p>
+<hr />
+<p><strong>2.</strong> <span class="math-inline">P(G<sub>H</sub> = 0) = e<sup>-1.9</sup> = 0.14957</span>. <span class="math-inline">P(G<sub>A</sub> = 0) = e<sup>-0.8</sup> = 0.44933</span>.</p>
+<p><strong><span class="math-inline">P(0-0) = 0.14957 × 0.44933 = <strong>0.06721</strong></span>.</strong></p>
+<p><strong>Under 2.5</strong> = <span class="math-inline">P(G<sub>H</sub> + G<sub>A</sub> ≤ 2)</span>. The sum is Poisson(2.7):
+<span class="math-inline">e<sup>-2.7</sup> = 0.067206</span>; <span class="math-inline">P(0) = 0.067206</span>, <span class="math-inline">P(1) = 0.181455</span>, <span class="math-inline">P(2) = 0.244964</span>.
+Total <span class="math-inline">= <strong>0.49363</strong></span>.</p>
+<p><strong>Away clean sheet</strong> = <span class="math-inline">P(G<sub>H</sub> = 0) = <strong>0.14957</strong></span>.
+(Careful with the wording — the <em>away</em> team keeps a clean sheet when the <em>home</em> team fails to
+score.)</p>
+<p><strong>False assumption:</strong> goals are not independent and the two rates are not independent of each
+other — the Poisson model materially under-predicts 0-0, 1-0, 0-1 and 1-1 scorelines, and assumes
+constant intensity across the match when in reality intensity rises after a red card, at 1-1 late
+on, and so forth. <strong>Fix:</strong> the <strong>Dixon-Coles adjustment</strong> (B4), which applies a correction factor
+<span class="math-inline">τ(h, a, λ<sub>H</sub>, λ<sub>A</sub>)</span> to exactly those four low-scoring cells while leaving the rest of
+the grid alone. Modern variants also add a time-decay weight so recent matches count more.</p>
+<hr />
+<p><strong>3.</strong> <strong>Model P:</strong> mean <span class="math-inline">= (0.48+0.51+0.49+0.50)/4 = 0.495</span>.
+Bias <span class="math-inline">= 0.495 - 0.55 = -0.055</span>; <strong>Bias² <span class="math-inline">= 0.003025</span>.</strong>
+Deviations: −0.015, +0.015, −0.005, +0.005. Squares: 0.000225, 0.000225, 0.000025, 0.000025.
+<strong>Variance <span class="math-inline">= 0.000125</span>.</strong>
+<strong>Total reducible <span class="math-inline">= 0.003150</span>.</strong></p>
+<p><strong>Model Q:</strong> mean <span class="math-inline">= (0.38+0.67+0.44+0.71)/4 = 0.550</span>.
+Bias <span class="math-inline">= 0.000</span>; <strong>Bias² <span class="math-inline">= 0.000000</span>.</strong>
+Deviations: −0.17, +0.12, −0.11, +0.16. Squares: 0.0289, 0.0144, 0.0121, 0.0256.
+<strong>Variance <span class="math-inline">= 0.02025</span>.</strong>
+<strong>Total reducible <span class="math-inline">= 0.020250</span>.</strong></p>
+<p><strong>Deploy P.</strong> It is 6.4× better on total error despite being the <em>only one of the two with any
+bias at all</em>. Q is perfectly unbiased in expectation and useless in practice.</p>
+<p>What it says about a single impressive backtest: Q's best fit predicted 0.71 against a truth of
+0.55 — if that happened to be the fit you saw, you'd conclude Q was a strong, confident model. You
+would have observed one draw from a high-variance procedure and mistaken it for a property of the
+model. <strong>A single backtest is one sample from a distribution over backtests, and the impressive
+ones are disproportionately drawn from high-variance procedures.</strong> That is B6's entire thesis, and
+the reason walk-forward evaluation over many refits is the only measurement that distinguishes P
+from Q.</p>
+<hr />
+<p><strong>4.</strong> <span class="math-inline">z<sub>model</sub> = log(0.12/0.88) = log(0.13636) = -1.99243</span>.
+<span class="math-inline">z<sub>mkt</sub> = log(0.06/0.94) = log(0.063830) = -2.75154</span>.</p>
+<p><strong>Log-odds blend:</strong> <span class="math-inline">0.25(-1.99243) + 0.75(-2.75154) = -0.498108 - 2.063655 = -2.561763</span>.
+<span class="math-inline">p̂ = σ(-2.561763) = 1/(1 + 12.9569) = <strong>0.07158</strong></span>.</p>
+<p><strong>Probability blend:</strong> <span class="math-inline">0.25(0.12) + 0.75(0.06) = 0.03 + 0.045 = <strong>0.07500</strong></span>.</p>
+<p>Difference: 0.342 points; relative <span class="math-inline">0.075/0.07158 - 1 = <strong>+4.8%</strong></span> for the arithmetic blend.</p>
+<p><strong>The log-odds number is defensible.</strong> Three reasons: (a) it's the Bayesian update — treating the
+market as prior and the model as evidence makes the blend a weighted sum of evidential weights,
+which is addition in log-odds and nothing sensible in probability space; (b) it can never leave
+(0,1) for any weights or any inputs, whereas arithmetic blending of a probability with an
+extrapolated model output can; (c) it's the correct behaviour at the tails — the arithmetic blend
+systematically pulls toward whichever opinion is nearer 0.5, so on long shots it inherits an upward
+bias from any less-confident model in the pool. On a 6c contract, a 4.8% relative overstatement of
+fair value is a meaningful fraction of the whole edge you were hoping to capture.</p>
+<hr />
+<p><strong>5.</strong> <strong>Skill score:</strong> $1 - 0.2205/0.2240 = 1 - 0.984375 = \mathbf{0.015625}$, i.e. <strong>1.56%</strong> of
+the market's error removed.</p>
+<p><strong>Mean difference:</strong> $0.2240 - 0.2205 = 0.0035$.
+<strong>Standard error:</strong> <span class="math-inline">0.095/√(400) = 0.095/20 = 0.00475</span>.
+<strong>t-statistic:</strong> <span class="math-inline">0.0035/0.00475 = <strong>0.737</strong></span>.</p>
+<p><strong>What you write:</strong> something like — <em>"Model beats the market baseline by 0.0035 Brier over 400
+resolved forecasts (skill score 1.6%), t = 0.74. Not statistically distinguishable from zero;
+consistent with no edge. Sample size required to detect an effect of this magnitude at t = 2 is
+approximately 2,950 forecasts."</em> And nothing stronger, because nothing stronger is true.</p>
+<p><span class="math-inline">n</span> required: <span class="math-inline">(2 × 0.095 / 0.0035)² = (54.286)² ≈ 2,947</span>.</p>
+<p><strong>Smallest detectable true edge at this <span class="math-inline">n</span>:</strong> $2 \times 0.00475 = \mathbf{0.0095}$ Brier — a skill
+score of about 4.2%. Anything genuinely smaller than that is invisible at 400 observations no
+matter how real it is. Worth internalising: the honest statement at month 6 will almost always be
+"no detectable edge," and writing that down rather than reaching for a favourable subgroup is the
+single most credible thing in the whole portfolio. It's also what A3's multiple-comparison
+correction is defending — slice 400 forecasts twelve ways and one slice will look wonderful.</p>
+<hr />
+<p><strong>6.</strong> <code>market_mirror</code> sets <span class="math-inline">p̂ = mkt<sub>y</sub>esₘid</span>, so its Brier must equal
+<code>brier_market</code> up to floating-point noise. A 0.0071 gap is a pipeline defect. Three candidates:</p>
+<ol>
+<li>
+<p><strong><code>mkt_yes_mid</code> in the forecast row and the mid used to compute <code>brier_market</code> come from
+   different snapshots.</strong> The scoring view joins a market price at query time instead of using the
+   value embedded in the row — so the model is being scored against a <em>different</em> price than the
+   one it copied. <strong>Violates invariant 2</strong> (market state captured at forecast write time, never
+   joined afterwards). This is the most likely cause and the exact failure invariant 2 exists to
+   prevent.</p>
+</li>
+<li>
+<p><strong>De-vig applied on one side only.</strong> <code>brier_market</code> computed from a de-vigged implied
+   probability while <code>p_hat</code> copied the raw vigged mid (or vice versa). The gap would then be
+   systematic and one-directional, and larger on wide-spread markets. <strong>Violates invariant 6</strong> in
+   spirit — the baseline isn't the market's true implied probability, so the comparison is against
+   a strawman.</p>
+</li>
+<li>
+<p><strong>Timezone or timestamp misalignment in the resolution join.</strong> A resolution attached to the
+   wrong forecast because a local timestamp leaked into the join key, or the T-24h forecast matched
+   against a T-1h closing price. <strong>Violates invariant 7</strong> (everything UTC), and would show up as a
+   gap that varies by venue or by market close time — which is the diagnostic that separates it
+   from cause 2.</p>
+</li>
+</ol>
+<p>Honourable mentions worth checking: a <code>seq</code> gap meaning some forecasts were written but lost
+(<strong>invariant 5</strong> — a gapless monotonic <code>seq</code> is exactly the monitor for this), and superseded rows
+being double-counted in the scoring view because it doesn't filter on
+<code>supersedes_forecast_id</code> (<strong>invariant 1</strong> — corrections are new rows, and the reader has to know
+that).</p>
+<p>The general lesson: <code>market_mirror</code> is not a model, it's a <strong>unit test for the measurement layer
+that runs continuously in production</strong>. Its only job is to fail loudly when the pipeline lies, and
+a non-zero gap tells you the infrastructure is broken before any real model's results can mean
+anything.</p>
+</details>
+</main>
+
+<footer>
+  <p><a href="learning.html">&larr; Back to the learning index</a> — generated from
+  <code>docs/learning/track-b/b1-what-a-model-is.md</code>, the source of truth.</p>
+</footer>
+
+</body>
+</html>

@@ -80,6 +80,66 @@ th { background: var(--code-bg); }
 
 .pending { color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* --- learning pages --- */
+
+.prose { max-width: 42rem; }
+.prose h2 { padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.prose h3 { color: var(--muted); font-size: 1rem; text-transform: none; }
+.prose li { margin: 0.3rem 0; }
+
+.toc {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  padding: 1rem 1.25rem;
+  margin: 0 0 2.5rem;
+  font-size: 0.9rem;
+}
+.toc p { margin: 0 0 0.5rem; }
+.toc ol { margin: 0; padding-left: 1.4rem; }
+.toc a { text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+
+/* Maths rendered as text — no external font or script (CSP blocks CDNs). */
+.math-inline {
+  font-family: "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 0.95em;
+  white-space: nowrap;
+}
+.math-block {
+  font-family: "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg);
+  border-left: 3px solid var(--accent);
+  padding: 0.85rem 1.1rem;
+  margin: 1.25rem 0;
+  overflow-x: auto;
+  font-size: 0.95rem;
+}
+
+details {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+  margin: 1.5rem 0;
+  background: var(--code-bg);
+}
+details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--accent);
+}
+details[open] summary { margin-bottom: 0.75rem; }
+
+.card-list { list-style: none; padding: 0; }
+.card-list li {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  padding: 0.9rem 1.1rem;
+  margin: 0.85rem 0;
+}
+.card-list a { font-weight: 600; text-decoration: none; }
+.card-list a:hover { text-decoration: underline; }
+.card-list p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.9rem; }
+
 footer {
   margin-top: 3.5rem;
   padding-top: 1rem;

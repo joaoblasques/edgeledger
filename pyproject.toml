@@ -15,6 +15,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "markdown>=3.10.3",
     "pytest>=8.2",
     "ruff>=0.5",
 ]

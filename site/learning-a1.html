@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A1 — Probability Foundations — EdgeLedger</title>
+<meta name="description" content="Is my edge real, and how much do I bet? EdgeLedger learning notes.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>A1 — Probability Foundations</h1>
+  <p class="tagline">Track A — Probability &amp; Inference — <em>Is my edge real, and how much do I bet?</em></p>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="methodology.html">Methodology</a>
+    <a href="results.html">Results</a>
+    <a href="learning.html" aria-current="page">Learning</a>
+  </nav>
+</header>
+
+<main class="prose">
+<nav class="toc"><p><strong>On this page</strong></p>
+<ol>
+    <li><a href="#1-probability-as-a-price">1. Probability as a price</a></li>
+    <li><a href="#2-conditional-probability">2. Conditional probability</a></li>
+    <li><a href="#3-bayes-theorem">3. Bayes&#x27; theorem</a></li>
+    <li><a href="#4-expectation-and-variance">4. Expectation and variance</a></li>
+    <li><a href="#5-odds-probability-log-odds">5. Odds ↔ probability ↔ log-odds</a></li>
+    <li><a href="#6-vig-and-overround-removal">6. Vig and overround removal</a></li>
+    <li><a href="#check-yourself">Check yourself</a></li>
+</ol></nav>
+<h1 id="a1-probability-foundations">A1 — Probability Foundations</h1>
+<p><strong>Core question: what is a fair price?</strong></p>
+<p>A binary event contract pays 1 if the event happens and 0 if it doesn't. Its fair price is
+therefore just a probability wearing a currency sign. Everything in this note exists to make that
+sentence precise enough to build on: how to reason about a probability conditional on what you
+know, how to update it when new information arrives, how to convert between the three
+representations the industry uses interchangeably, and how to strip the house's margin out of a
+quoted price so you're comparing yourself against the market's <em>actual</em> belief rather than its
+sales price.</p>
+<p>Prerequisite framing for the whole note: throughout, a market "showing 0.0455 for Yes" means you
+can buy the Yes contract at 4.55c and receive $1.00 if it resolves Yes. Kalshi quotes in cents,
+Polymarket in dollars 0–1; EdgeLedger stores everything as <code>Decimal</code> in [0, 1]
+(<code>mkt_yes_bid</code>, <code>mkt_yes_ask</code>, <code>mkt_yes_mid</code> in <code>ForecastLogRow</code>).</p>
+<hr />
+<h2 id="1-probability-as-a-price">1. Probability as a price</h2>
+<h3 id="intuition">Intuition</h3>
+<p>If a contract pays $1 on Yes and you think Yes happens 30% of the time, then over many identical
+independent bets you collect $1 thirty times per hundred. Your average receipt is $0.30. So $0.30
+is the price at which you neither gain nor lose in the long run — the <em>fair</em> price. Above it you
+are selling value; below it you are buying it.</p>
+<p>This is the single most useful mental collapse in the whole business: <strong>price and probability are
+the same object</strong>. When a trader says "this is trading at 30" and a modeller says "I have it at
+0.34", they are disagreeing about a probability, and the disagreement is denominated in cents.</p>
+<h3 id="the-maths">The maths</h3>
+<p>For a contract with payoff <span class="math-inline">X ∈ 0, 1</span> and <span class="math-inline">P(X=1) = p</span>:</p>
+<div class="math-block">E[X] = 1 · p + 0 · (1-p) = p</div>
+<p>In prose: the expected payoff is the sum over outcomes of (payoff × probability of that outcome).
+The zero-payoff branch contributes nothing, so the expectation collapses to <span class="math-inline">p</span> exactly. A
+contract whose payoff is 0 or 1 has an expected value numerically identical to the probability of
+the "1" branch. Fair price = expected payoff = <span class="math-inline">p</span>.</p>
+<h3 id="worked-example">Worked example</h3>
+<p>A Kalshi market: <em>"Will the Fed cut rates at the March meeting?"</em> Yes is quoted 0.30 / 0.33
+(bid/ask). Mid is 0.315. You believe <span class="math-inline">p = 0.38</span>.</p>
+<ul>
+<li>Buy Yes at the ask, 0.33. Expected payoff 0.38. Expected profit per contract:
+  $0.38 - 0.33 = \$0.05$.</li>
+<li>Your <code>edge</code> field in <code>forecast_log</code> would record <span class="math-inline">p̂ - mkt<sub>y</sub>esₘid = 0.38 - 0.315 = 0.065</span>.</li>
+</ul>
+<p>Note EdgeLedger computes <code>edge</code> against the <strong>mid</strong>, not against the ask you'd actually pay. That
+is deliberate: mid-based edge measures your disagreement with the market's belief; ask-based edge
+measures your disagreement net of transaction cost. The first is the research question, the second
+is the trading question, and conflating them is how people convince themselves a 2c edge is real
+when the spread is 3c.</p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> Every conversation on a desk is conducted in price, not in
+probability. Being fluent in the identity means you can hear "we're paying 34 for that" and
+immediately think "so they need it to happen more than 34% of the time" without conscious
+conversion. It is also the reason a Brier score is directly interpretable as money: squared
+probability error and squared pricing error are the same number.</p>
+</blockquote>
+<hr />
+<h2 id="2-conditional-probability">2. Conditional probability</h2>
+<h3 id="intuition_1">Intuition</h3>
+<p><span class="math-inline">P(A)</span> is your belief about <span class="math-inline">A</span> knowing nothing in particular. <span class="math-inline">P(A | B)</span> is your belief about
+<span class="math-inline">A</span> in the subset of worlds where <span class="math-inline">B</span> is true. Conditioning is <em>restriction</em>: you throw away every
+world inconsistent with <span class="math-inline">B</span>, then re-normalise so what's left sums to 1.</p>
+<p>The reason this is the foundational concept for a forecasting system rather than a piece of exam
+trivia is that <strong>every forecast is conditional</strong>. There is no such thing as <span class="math-inline">P(home win)</span>.
+There is <span class="math-inline">P(home win | everything known at 14:00 UTC)</span>. The conditioning set is
+the model's inputs.</p>
+<h3 id="the-maths_1">The maths</h3>
+<div class="math-block">P(A | B) = (P(A ∩ B))/P(B),     P(B) &gt; 0</div>
+<p>In prose: the probability of <span class="math-inline">A</span> given <span class="math-inline">B</span> is the probability that both happen, divided by the
+probability that the condition happens at all. The denominator is the re-normalisation — it
+rescales the restricted world back up to total probability 1.</p>
+<p>Rearranged, this is the <strong>chain rule</strong>:</p>
+<div class="math-block">P(A ∩ B) = P(A | B)  P(B)</div>
+<p>The probability of both is the probability of the condition times the probability of the target
+inside that condition.</p>
+<p>Two events are <strong>independent</strong> when <span class="math-inline">P(A | B) = P(A)</span> — learning <span class="math-inline">B</span> moves nothing — which is
+equivalent to <span class="math-inline">P(A ∩ B) = P(A)P(B)</span>.</p>
+<h3 id="worked-example_1">Worked example</h3>
+<p>Polymarket lists two related contracts on an NFL game:</p>
+<ul>
+<li><em>"Team A wins"</em> — 0.62</li>
+<li><em>"Total points over 47.5"</em> — 0.55</li>
+</ul>
+<p>Naively, <em>"Team A wins AND over 47.5"</em> would be $0.62 \times 0.55 = 0.341$. If a third contract on
+exactly that joint event trades at 0.30, either the market thinks those events are negatively
+dependent (a high-scoring game favours the underdog's chances of keeping up), or there's a
+mispricing. Implied conditional:</p>
+<div class="math-block">P(over | A wins) = 0.30/0.62 = 0.484</div>
+<p>So the market's conditional probability of the over given an A win is 0.484 versus an
+unconditional 0.55 — the market is saying A winning makes a high-scoring game <em>less</em> likely.
+That's a testable claim about a mechanism, and it's the kind of structure you can only see once
+you're comfortable moving between joint, marginal and conditional.</p>
+<h3 id="the-edgeledger-link">The EdgeLedger link</h3>
+<p>Invariant 3 — <code>feature_cutoff_ts_utc</code> — is literally a statement about the conditioning set. The
+contract says: the features that produced <span class="math-inline">p̂</span> are derivable from bronze rows with
+<code>capture_ts_utc &lt;= feature_cutoff_ts_utc</code>. In probability language, the conditioning set is
+<span class="math-inline">Fₜ</span>, the information available at time <span class="math-inline">t</span>, and the forecast is
+<span class="math-inline">p̂ = P(yes | Fₜ)</span>.</p>
+<p>Leakage is not a data-engineering bug that happens to have statistical consequences. Leakage is
+<em>conditioning on the wrong set</em> — computing <span class="math-inline">P(yes | F<sub>t'</sub>)</span> for some
+<span class="math-inline">t' &gt; t</span> and labelling it <span class="math-inline">t</span>. <code>tests/test_point_in_time.py</code> is the assertion that the conditioning
+set in the code matches the conditioning set in the claim.</p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> Every model that has ever blown up in backtest-to-production
+transition did so because its training conditioning set was larger than its live conditioning
+set. The desk framing: "what did we actually know at the moment we would have had to press the
+button?" If you can't answer that to the second, the backtest is decoration.</p>
+</blockquote>
+<hr />
+<h2 id="3-bayes-theorem">3. Bayes' theorem</h2>
+<h3 id="intuition_2">Intuition</h3>
+<p>You have a belief. Evidence arrives. What should the new belief be?</p>
+<p>Bayes says: weight your prior belief by how well it predicted the evidence you actually saw,
+relative to how well all the alternatives predicted it. A hypothesis that expected this evidence
+gains; one that was surprised by it loses. That's all it is — a bookkeeping rule for "surprise
+should cost you belief, proportionally."</p>
+<h3 id="the-maths_2">The maths</h3>
+<div class="math-block">P(H | E) = (P(E | H)  P(H))/P(E)</div>
+<p>In prose, term by term:</p>
+<ul>
+<li><span class="math-inline">P(H)</span> — the <strong>prior</strong>: your belief in the hypothesis before seeing this evidence.</li>
+<li><span class="math-inline">P(E | H)</span> — the <strong>likelihood</strong>: how probable this evidence would be <em>if</em> the hypothesis were
+  true. Note carefully this is not "how probable the hypothesis is" — the whole trick of Bayes is
+  that it converts the easy-to-state direction into the one you want.</li>
+<li><span class="math-inline">P(E)</span> — the <strong>evidence</strong> or marginal likelihood: how probable the evidence was overall,
+  averaged across all hypotheses. This is a normalising constant, expanded via the law of total
+  probability as <span class="math-inline">P(E) = P(E | H)P(H) + P(E | ¬ H)P(¬ H)</span>.</li>
+<li><span class="math-inline">P(H | E)</span> — the <strong>posterior</strong>: your updated belief.</li>
+</ul>
+<p>The <strong>odds form</strong> is far more usable in practice and connects directly to section 4:</p>
+<div class="math-block">(P(H | E))/(P(¬ H | E))<sub>posterior odds</sub> = (P(E | H))/(P(E | ¬ H))<sub>likelihood ratio</sub> × P(H)/(P(¬ H))<sub>prior odds</sub></div>
+<p>In prose: posterior odds equal prior odds multiplied by the likelihood ratio. Updating in odds
+space is a <em>multiplication</em>, with no normalising constant to compute. Take logs and it becomes an
+<em>addition</em> — which is exactly why log-odds is the working space for models (section 4, and B1).</p>
+<h3 id="worked-example_2">Worked example</h3>
+<p>An injury report drops 90 minutes before a game. Prior: home team wins with <span class="math-inline">p = 0.60</span>.</p>
+<p>Historically, when the home team goes on to win, a starting-QB-out report on the away side appears
+in 22% of cases. When the home team loses, such a report appears in 10% of cases. (These are the
+likelihoods — note they're conditional on the <em>outcome</em>, which feels backwards, and that's the
+point.)</p>
+<p>Prior odds: $0.60 / 0.40 = 1.5$.</p>
+<p>Likelihood ratio: $0.22 / 0.10 = 2.2$.</p>
+<p>Posterior odds: $1.5 \times 2.2 = 3.3$.</p>
+<p>Posterior probability: $3.3 / (1 + 3.3) = 0.767$.</p>
+<p>So the report moves you from 0.60 to 0.767. If the market has only moved to 0.70, you have 6.7
+points of edge — assuming your likelihoods are honest, which is exactly the assumption A3
+(inference) and B6 (validation) exist to interrogate.</p>
+<h3 id="the-edgeledger-link_1">The EdgeLedger link</h3>
+<p>Two places.</p>
+<p><strong>B5 (hierarchical priors, months 7–8).</strong> When you're estimating a team-strength parameter from 6
+games, the maximum-likelihood estimate is garbage — high variance, driven by noise. Hierarchical
+modelling puts a prior on the team effect centred on the league average and lets the data pull the
+estimate away from it in proportion to how much data there is. That shrinkage <em>is</em> Bayes: prior =
+league average, likelihood = this team's 6 games, posterior = a weighted blend. Small sample →
+posterior sits near the prior. Large sample → likelihood dominates. Understanding it as a single
+Bayes update rather than a modelling trick is what makes the partial-pooling maths readable.</p>
+<p><strong>B7 (shrinking toward market price, months 11–12).</strong> Blending your model with the market is a
+Bayes update in log-odds space where the market is the prior and your model is the evidence. The
+blend weight is the strength you assign to each. Do it in probability space and you get nonsense
+at the tails; do it in log-odds space and it's a weighted sum — logarithmic opinion pooling.</p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> News arrives constantly and the question is always "how much
+should this move my number?" A desk that answers that by feel is running an unmeasurable process.
+A desk that answers it with an explicit likelihood ratio has a number it can backtest, and can
+tell the difference between "the news was worth 7 points" and "we panicked."</p>
+</blockquote>
+<hr />
+<h2 id="4-expectation-and-variance">4. Expectation and variance</h2>
+<h3 id="intuition_3">Intuition</h3>
+<p>Expectation is the long-run average. Variance is how far individual outcomes scatter around it.
+For a binary contract, the two are locked together by <span class="math-inline">p</span> alone — you cannot choose them
+independently, which is a genuinely important structural fact.</p>
+<p>The practical consequence: a market at 0.50 is the <em>most</em> uncertain market on the board, and a
+market at 0.02 is nearly deterministic. Your position sizing, your sample-size requirements, and
+how long it takes to prove you have edge all depend on where on that curve you're trading.</p>
+<h3 id="the-maths_3">The maths</h3>
+<p>For a Bernoulli random variable <span class="math-inline">X</span> with <span class="math-inline">P(X=1) = p</span>:</p>
+<div class="math-block">E[X] = p,     Var(X) = E[X²] - (E[X])² = p - p² = p(1-p)</div>
+<p>In prose: since <span class="math-inline">X</span> only takes values 0 and 1, <span class="math-inline">X² = X</span>, so <span class="math-inline">E[X²] = p</span> and the variance
+is <span class="math-inline">p - p²</span>. This function is a downward parabola, maximised at <span class="math-inline">p = 0.5</span> where it equals 0.25,
+and falling to 0 at both ends.</p>
+<p>For a <strong>position</strong>, expectation is linear and variance is not. If you buy a contract at price <span class="math-inline">c</span>,
+your profit is <span class="math-inline">X - c</span>:</p>
+<div class="math-block">E[profit] = p - c,     Var(profit) = p(1-p)</div>
+<p>In prose: buying at a price shifts the mean by that price but doesn't change the spread at all —
+subtracting a constant moves the whole distribution without stretching it. Your edge is <span class="math-inline">p - c</span>;
+your risk is fixed by <span class="math-inline">p</span>.</p>
+<p>Across <span class="math-inline">n</span> independent positions each with edge <span class="math-inline">e</span> and variance <span class="math-inline">v</span>, total expected profit is
+<span class="math-inline">ne</span> and total variance is <span class="math-inline">nv</span>, so the standard deviation grows as <span class="math-inline">√(n)</span>. Signal grows
+linearly, noise grows as a square root — that ratio, <span class="math-inline">e√(n)/√(v)</span>, is why sample size is
+the whole game.</p>
+<h3 id="worked-example_3">Worked example</h3>
+<p>Two positions, both with 3 points of edge:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>Price</th>
+<th>Your <span class="math-inline">p̂</span></th>
+<th>Edge</th>
+<th>Variance <span class="math-inline">p(1-p)</span></th>
+<th>SD</th>
+<th>Edge / SD</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Market A</td>
+<td>0.50</td>
+<td>0.53</td>
+<td>0.03</td>
+<td>0.2491</td>
+<td>0.499</td>
+<td>0.060</td>
+</tr>
+<tr>
+<td>Market B</td>
+<td>0.05</td>
+<td>0.08</td>
+<td>0.03</td>
+<td>0.0736</td>
+<td>0.271</td>
+<td>0.111</td>
+</tr>
+</tbody>
+</table></div>
+<p>Identical edge, but B has less than half the noise per bet. To detect a 3-point edge at 2 standard
+errors, market A needs roughly <span class="math-inline">n = (2 × 0.499 / 0.03)² ≈ 1,107</span> resolved forecasts;
+market B needs <span class="math-inline">(2 × 0.271 / 0.03)² ≈ 327</span>. That is a 3.4× difference in how long you
+have to wait to know whether you're any good.</p>
+<p>This is not an abstraction for a 12-month project. It's the reason the market-selection decision
+(which CLAUDE.md correctly marks human-owned, never auto-decided) has statistical consequences,
+not just business ones.</p>
+<h3 id="the-edgeledger-link_2">The EdgeLedger link</h3>
+<p>Direct line into <strong>A3</strong> (is my edge luck?) and <strong>A4</strong> (Kelly sizing). Kelly's optimal fraction for
+a binary contract bought at <span class="math-inline">c</span> with true probability <span class="math-inline">p</span> is <span class="math-inline">f^* = (p - c)/(1 - c)</span> — edge divided
+by the amount at risk — and the variance drag that motivates fractional Kelly is exactly the
+<span class="math-inline">p(1-p)</span> term above compounding against you.</p>
+<p>It also explains why <code>p_hat_lo</code> / <code>p_hat_hi</code> are in the schema from day one. A point forecast
+without an interval hides the fact that a 0.50 forecast and a 0.05 forecast carry radically
+different amounts of information.</p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> A researcher who reports edge without reporting variance has
+reported half a number. The desk question is never "is the expected value positive" — it's
+"what's the expected value per unit of risk, and how many observations until we'd know we were
+wrong?" Sharpe ratio (A6) is precisely that ratio.</p>
+</blockquote>
+<hr />
+<h2 id="5-odds-probability-log-odds">5. Odds ↔ probability ↔ log-odds</h2>
+<h3 id="intuition_4">Intuition</h3>
+<p>Three coordinate systems for the same quantity, each convenient somewhere different:</p>
+<ul>
+<li><strong>Probability</strong> <span class="math-inline">p ∈ [0,1]</span> — what resolves, what gets scored, what a price is.</li>
+<li><strong>Odds</strong> <span class="math-inline">p/(1-p) ∈ [0,∞)</span> — the ratio of "happens" to "doesn't". Bayes updates are
+  multiplications here.</li>
+<li><strong>Log-odds</strong> (logit) <span class="math-inline">logp/(1-p) ∈ (-∞,∞)</span> — unbounded and symmetric around
+  zero. Bayes updates are <em>additions</em> here, and adding features linearly is exactly what a
+  regression does.</li>
+</ul>
+<p>The reason log-odds is the modelling space and not just a curiosity: probability is bounded, and
+bounded quantities are awful to do linear algebra on. Add 0.10 to a probability of 0.95 and you
+get 1.05, which doesn't exist. Add 0.10 to a log-odds of 2.94 and you get 3.04, which is fine and
+corresponds to <span class="math-inline">p = 0.954</span>. The logit transform buys you an unbounded space where "add a bit of
+evidence" is a legal operation everywhere.</p>
+<h3 id="the-maths_4">The maths</h3>
+<div class="math-block">odds = p/(1-p),     p = odds/(1 + odds)</div>
+<div class="math-block">logit(p) = logp/(1-p),     p = σ(z) = 1/(1 + e<sup>-z</sup>)</div>
+<p>In prose: odds is "probability it happens over probability it doesn't"; inverting requires dividing
+by one-plus-odds to get back onto the [0,1] scale. Log-odds is the natural logarithm of the odds;
+the inverse is the logistic (sigmoid) function, which squashes any real number back into (0,1).
+<code>logit</code> and <code>sigmoid</code> are exact inverses.</p>
+<p>Useful anchors worth memorising, because they make model coefficients readable at a glance:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th><span class="math-inline">p</span></th>
+<th>odds</th>
+<th>logit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.01</td>
+<td>0.0101</td>
+<td>−4.60</td>
+</tr>
+<tr>
+<td>0.05</td>
+<td>0.0526</td>
+<td>−2.94</td>
+</tr>
+<tr>
+<td>0.10</td>
+<td>0.111</td>
+<td>−2.20</td>
+</tr>
+<tr>
+<td>0.25</td>
+<td>0.333</td>
+<td>−1.10</td>
+</tr>
+<tr>
+<td>0.50</td>
+<td>1.00</td>
+<td>0.00</td>
+</tr>
+<tr>
+<td>0.75</td>
+<td>3.00</td>
+<td>+1.10</td>
+</tr>
+<tr>
+<td>0.90</td>
+<td>9.00</td>
+<td>+2.20</td>
+</tr>
+<tr>
+<td>0.95</td>
+<td>19.0</td>
+<td>+2.94</td>
+</tr>
+<tr>
+<td>0.99</td>
+<td>99.0</td>
+<td>+4.60</td>
+</tr>
+</tbody>
+</table></div>
+<p>Symmetry: <span class="math-inline">logit(1-p) = -logit(p)</span>. And one log-odds unit ≈ an odds
+ratio of <span class="math-inline">e ≈ 2.718</span>.</p>
+<p>Also worth knowing because sportsbook data arrives in these formats:</p>
+<ul>
+<li><strong>Decimal odds</strong> <span class="math-inline">d</span> (European): implied <span class="math-inline">p = 1/d</span>. Decimal 2.50 → 0.40.</li>
+<li><strong>American odds</strong> <span class="math-inline">a</span>: for <span class="math-inline">a &gt; 0</span>, <span class="math-inline">p = 100/(a + 100)</span>; for <span class="math-inline">a &lt; 0</span>, <span class="math-inline">p = |a|/(|a| + 100)</span>.
+  +150 → 0.40. −200 → 0.667.</li>
+</ul>
+<h3 id="worked-example_4">Worked example</h3>
+<p>A market shows Yes at <strong>0.0455</strong> — a genuine Kalshi-style long-shot price.</p>
+<ul>
+<li>Odds: $0.0455 / 0.9545 = 0.04767$, i.e. roughly 21-to-1 against.</li>
+<li>Log-odds: <span class="math-inline">log(0.04767) = -3.043</span>.</li>
+</ul>
+<p>Now suppose your model finds a feature worth <strong>+0.5 log-odds</strong> — a coefficient of 0.5 on a binary
+feature that's currently on. New log-odds: <span class="math-inline">-3.043 + 0.5 = -2.543</span>. Back to probability:
+<span class="math-inline">σ(-2.543) = 1/(1 + e<sup>2.543</sup>) = 0.0729</span>.</p>
+<p>So half a log-odds unit moved a 4.55c contract to 7.29c — a <strong>60% relative increase</strong> in price. The
+same +0.5 applied at 0.50 moves you to <span class="math-inline">σ(0.5) = 0.622</span>, a 24% relative increase. Identical
+coefficient, wildly different price impact, because the sigmoid is steepest in the middle and flat
+at the tails.</p>
+<p>This asymmetry is the entire reason long-shot markets are dangerous and also where the money is: a
+small absolute mispricing at 0.04 is an enormous relative mispricing, and models built and
+validated at mid-range probabilities behave unrecognisably out there.</p>
+<h3 id="the-edgeledger-link_3">The EdgeLedger link</h3>
+<p><strong>B3 (logistic regression, months 5–6)</strong> fits <span class="math-inline">logit(p) = β₀ + ∑ βᵢ xᵢ</span>.
+Every coefficient it produces is denominated in log-odds. If you are not fluent in the table above,
+you cannot read your own model output — "<span class="math-inline">β = 0.5</span>" is meaningless until you can see it as
+"multiplies the odds by 1.65."</p>
+<p><strong>B7 (ensembling)</strong> blends models in log-odds space, because averaging probabilities of 0.02 and
+0.40 gives 0.21 (dominated by the confident-in-the-middle model) whereas averaging log-odds gives
+<span class="math-inline">(-3.89 + -0.41)/2 = -2.15 → p = 0.104</span> — the geometric-style blend that respects how much each
+model is actually claiming.</p>
+<p><strong>Invariant 6</strong> also lives here: comparing <span class="math-inline">p̂</span> to the market baseline is a comparison you'll
+usually want to make in log-odds, because a 2-point difference at 0.50 and a 2-point difference at
+0.04 are not the same disagreement.</p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> Model coefficients, Bayesian updates, ensemble weights, and
+news impacts are all additive in log-odds and messy in probability. A researcher who thinks in
+probability keeps writing special-case clamps to stop values escaping [0,1]. A researcher who
+thinks in log-odds never needs one.</p>
+</blockquote>
+<hr />
+<h2 id="6-vig-and-overround-removal">6. Vig and overround removal</h2>
+<h3 id="intuition_5">Intuition</h3>
+<p>A book that quotes both sides of a market quotes them so that the implied probabilities sum to
+<em>more</em> than 1. The excess is the house's margin — the <strong>vig</strong> (vigorish) or <strong>overround</strong>. It's
+not a forecast error; it's the price of the service.</p>
+<p>Which means: <strong>the quoted price is not the market's belief.</strong> It is the market's belief plus a
+markup. If you score your model against the vigged price, you flatter yourself on one side and
+penalise yourself on the other, and if you score against the vigged price on a two-sided market
+you are effectively scoring against a probability distribution that doesn't sum to 1 — which is
+not a probability distribution.</p>
+<p>For a bid/ask market like Kalshi or Polymarket the same phenomenon appears as the <strong>spread</strong>: the
+bid and the ask straddle the market's belief, and the mid is your best cheap estimate of the
+de-vigged number.</p>
+<h3 id="the-maths_5">The maths</h3>
+<p>Given quoted implied probabilities <span class="math-inline">q₁, …, q<sub>k</sub></span> for the <span class="math-inline">k</span> mutually exclusive outcomes, the
+<strong>booksum</strong> (overround) is:</p>
+<div class="math-block">S = ∑ᵢ₌₁<sup>k</sup> qᵢ</div>
+<p>In prose: add up the implied probabilities of every outcome. A fair book sums to exactly 1.
+Anything above 1 is margin; the vig as a percentage of stake is <span class="math-inline">(S-1)/S</span>.</p>
+<p><strong>Method 1 — multiplicative (proportional) normalisation:</strong></p>
+<div class="math-block">pᵢ = qᵢ/S</div>
+<p>In prose: divide every quoted probability by the booksum so they sum to 1. This assumes the book
+applied its margin proportionally across outcomes. Simplest, and the default.</p>
+<p><strong>Method 2 — additive normalisation:</strong></p>
+<div class="math-block">pᵢ = qᵢ - (S-1)/k</div>
+<p>In prose: subtract an equal share of the excess from each outcome. This assumes the margin was
+applied as a flat amount per outcome rather than proportionally.</p>
+<p><strong>Method 3 — Shin's method / power method.</strong> Multiplicative normalisation is known to be wrong in
+one specific, well-documented direction: it under-corrects long shots. Real books load more margin
+onto long shots than on favourites (the <strong>favourite–longshot bias</strong>), so proportional removal
+leaves long-shot de-vigged probabilities still too high. The power method solves for an exponent
+<span class="math-inline">α</span> such that <span class="math-inline">∑ qᵢ<sup>α</sup> = 1</span> and takes <span class="math-inline">pᵢ = qᵢ<sup>α</sup></span>; Shin's method models an
+insider-trading fraction instead. Both push long-shot probabilities down more than favourites.</p>
+<p>For EdgeLedger's two-sided binary markets the multiplicative method is a defensible default, and
+the honest thing is to record which method was used rather than pretend the choice doesn't exist.</p>
+<h3 id="worked-example_5">Worked example</h3>
+<p><strong>Two-way (the EdgeLedger case).</strong> A market quotes:</p>
+<ul>
+<li>Yes: 0.0500</li>
+<li>No: 0.9700</li>
+</ul>
+<p>Booksum: <span class="math-inline">S = 0.0500 + 0.9700 = 1.0200</span>. Overround: 2.00%. Vig as a fraction of stake:
+<span class="math-inline">0.02/1.02 = 1.96%</span>.</p>
+<p>Multiplicative de-vig:</p>
+<ul>
+<li><span class="math-inline">p<sub>yes</sub> = 0.0500 / 1.0200 = 0.04902</span></li>
+<li><span class="math-inline">pₙₒ = 0.9700 / 1.0200 = 0.95098</span></li>
+<li>Sum: 1.0000 ✓</li>
+</ul>
+<p>So the market's true implied probability of Yes is <strong>0.0490</strong>, not the quoted 0.0500.</p>
+<p>Now suppose your model says <span class="math-inline">p̂ = 0.0455</span> (our long-shot from section 5). Scored against the
+<strong>quoted</strong> 0.0500, you look like you disagree by 0.45 points. Scored against the <strong>de-vigged</strong>
+0.0490, you disagree by 0.35 points. On a single market that's noise. Across 5,000 forecasts, a
+systematic 0.1-point bias in your baseline is the difference between "beats the market" and
+"doesn't", and it is a bias you introduced yourself, in your own scoring code.</p>
+<p><strong>Three-way, to show the general case.</strong> A football match:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Outcome</th>
+<th>Decimal odds</th>
+<th>Quoted <span class="math-inline">qᵢ = 1/d</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Home</td>
+<td>2.10</td>
+<td>0.4762</td>
+</tr>
+<tr>
+<td>Draw</td>
+<td>3.40</td>
+<td>0.2941</td>
+</tr>
+<tr>
+<td>Away</td>
+<td>4.20</td>
+<td>0.2381</td>
+</tr>
+</tbody>
+</table></div>
+<p><span class="math-inline">S = 1.0084</span>. Overround 0.84%. Multiplicative de-vig:</p>
+<ul>
+<li>Home: <span class="math-inline">0.4762/1.0084 = 0.4722</span></li>
+<li>Draw: <span class="math-inline">0.2941/1.0084 = 0.2917</span></li>
+<li>Away: <span class="math-inline">0.2381/1.0084 = 0.2361</span></li>
+<li>Sum: 1.0000 ✓</li>
+</ul>
+<p>Additive de-vig subtracts <span class="math-inline">0.0084/3 = 0.0028</span> from each: 0.4734 / 0.2913 / 0.2353. Note the
+disagreement between the two methods is largest, in relative terms, on the away side — the long
+shot. On a real book with a 6% overround that discrepancy becomes material, which is precisely why
+the method choice is a documented decision and not a helper-function detail.</p>
+<h3 id="the-edgeledger-link_4">The EdgeLedger link</h3>
+<p>This is <strong>invariant 6</strong> made operational. The invariant says every metric is reported against the
+market baseline — <code>brier_market</code> alongside <code>brier</code>, always. But <code>brier_market</code> is only a meaningful
+baseline if it's computed against the market's <em>true</em> implied probability. Score against the vigged
+quote and your baseline is systematically biased, in a direction that depends on which side of the
+market you're forecasting. You would be comparing yourself to a strawman and reporting the result
+as evidence.</p>
+<p>Concretely, the schema already gives you what you need: <code>mkt_yes_bid</code> and <code>mkt_yes_ask</code> are stored
+separately (invariant 2 — captured at write time, never joined afterwards). The mid,
+<code>mkt_yes_mid</code>, is the cheap de-vig for a two-sided book. Storing bid and ask rather than only the
+mid is what makes it possible to revisit the de-vig method later without re-running history — which
+you cannot do if you only ever persisted the mid.</p>
+<p>It also connects forward to <strong>A5 (microstructure)</strong>: the spread isn't only margin, it's also
+compensation for adverse selection and inventory risk. De-vigging assumes the spread is symmetric
+around belief. When it isn't — when there's one-sided flow — the mid is a biased estimate of belief
+and the CLV metric is where you'd see it.</p>
+<blockquote>
+<p><strong>Why this matters for the desk.</strong> "We beat the market by 40bps" is the single most common claim
+in this industry and the single most commonly wrong one, because the speaker measured against a
+price that included the market maker's fee. A desk that de-vigs consistently and documents the
+method can compare results across venues and across time. One that doesn't is generating numbers
+that aren't comparable to anything, including their own last quarter.</p>
+</blockquote>
+<hr />
+<h2 id="check-yourself">Check yourself</h2>
+<p>Six exercises. Work them on paper before opening the answers.</p>
+<p><strong>1.</strong> A Kalshi market shows Yes bid 0.0400, ask 0.0500. The No side shows bid 0.9500, ask 0.9600.
+What's the two-sided booksum using asks? What's the de-vigged Yes probability using multiplicative
+normalisation on the asks? How does that compare to the Yes mid?</p>
+<p><strong>2.</strong> Convert <span class="math-inline">p = 0.0455</span> to log-odds. Add a feature coefficient of <span class="math-inline">-0.8</span>. Convert back. Express
+the move both in absolute cents and as a relative change.</p>
+<p><strong>3.</strong> Your prior on an event is 0.25. New evidence arrives that occurs 40% of the time when the
+event happens and 15% of the time when it doesn't. Compute the posterior using the odds form of
+Bayes.</p>
+<p><strong>4.</strong> You have 3 points of edge on a market priced at 0.20. Compute expected profit per contract
+and the standard deviation of profit per contract. How many independent resolved forecasts would
+you need for your cumulative profit to be 2 standard errors above zero?</p>
+<p><strong>5.</strong> A three-way book quotes decimal odds 1.55 / 4.20 / 6.50. Compute the overround, then de-vig
+both multiplicatively and additively. Which outcome do the two methods disagree on most in relative
+terms, and why is that the expected direction?</p>
+<p><strong>6.</strong> Your model outputs <span class="math-inline">p̂ = 0.62</span>. The market shows bid 0.57, ask 0.61, and the No side
+asks 0.44. Is your <code>edge</code> field positive? Would you actually take the trade? Explain the difference
+between those two questions in one sentence.</p>
+<details><summary>Worked answers</summary>
+<p><strong>1.</strong> Using asks (what you'd pay on each side): <span class="math-inline">S = 0.0500 + 0.9600 = 1.0100</span>. Overround 1.00%.
+Multiplicative de-vig of Yes: $0.0500 / 1.0100 = 0.049505 \approx \mathbf{0.0495}$.</p>
+<p>The Yes mid is <span class="math-inline">(0.0400 + 0.0500)/2 = 0.0450</span>.</p>
+<p>These disagree by 0.45 points, which is large relative to a 4.5c contract — a 10% relative
+difference. Why: the ask-based de-vig assumes you cross the spread on both sides, so it inherits
+the full round-trip cost; the mid assumes the true price sits centrally between bid and ask. On a
+thin long-shot market the spread is wide and this choice matters a lot. The mid is the better
+estimate of <em>belief</em>; the ask-based number is closer to <em>executable</em> cost. EdgeLedger's <code>edge</code> uses
+the mid (belief), which is right for a research metric — and this exercise is exactly why the raw
+bid and ask are both persisted rather than only the derived mid.</p>
+<hr />
+<p><strong>2.</strong> <span class="math-inline">logit(0.0455) = log(0.0455/0.9545) = log(0.047669) = -3.0433</span>.</p>
+<p>Add <span class="math-inline">-0.8</span>: <span class="math-inline">-3.8433</span>.</p>
+<p><span class="math-inline">σ(-3.8433) = 1/(1 + e<sup>3.8433</sup>) = 1/(1 + 46.68) = <strong>0.02097</strong></span>.</p>
+<p>Absolute move: $0.0455 \to 0.0210$, i.e. <strong>−2.45 cents</strong>.
+Relative move: <span class="math-inline">0.0210/0.0455 - 1 = <strong>-53.9%</strong></span> — the contract lost more than half its value.</p>
+<p>Compare the same <span class="math-inline">-0.8</span> applied at <span class="math-inline">p = 0.50</span>: $0 - 0.8 = -0.8 \to \sigma(-0.8) = 0.3100$. Absolute
+move −19 cents, relative move −38%. So in <em>absolute</em> terms the mid-market move is far bigger; in
+<em>relative</em> terms the long-shot move is bigger. That's the sigmoid's shape: steep in the middle,
+flat at the tails, but the tails start from a small base.</p>
+<hr />
+<p><strong>3.</strong> Prior odds: $0.25 / 0.75 = 0.3333$.</p>
+<p>Likelihood ratio: $0.40 / 0.15 = 2.6667$.</p>
+<p>Posterior odds: $0.3333 \times 2.6667 = 0.8889$.</p>
+<p>Posterior probability: $0.8889 / (1 + 0.8889) = \mathbf{0.4706}$.</p>
+<p>Sanity check via the direct form: <span class="math-inline">P(E) = 0.40(0.25) + 0.15(0.75) = 0.10 + 0.1125 = 0.2125</span>, so
+<span class="math-inline">P(H | E) = 0.10/0.2125 = 0.4706</span> ✓.</p>
+<p>In log-odds: prior <span class="math-inline">log(0.3333) = -1.0986</span>, log-LR <span class="math-inline">log(2.6667) = +0.9808</span>, posterior
+<span class="math-inline">-0.1178 → σ(-0.1178) = 0.4706</span> ✓. Note the update was a single <em>addition</em> in log-odds
+space. That is the whole argument for working there.</p>
+<hr />
+<p><strong>4.</strong> Price 0.20, so <span class="math-inline">p̂ = 0.23</span>.</p>
+<p>Expected profit per contract: $0.23 - 0.20 = \mathbf{\$0.03}$.</p>
+<p>Variance of the payoff: <span class="math-inline">p(1-p) = 0.23 × 0.77 = 0.1771</span>. SD <span class="math-inline">= √(0.1771) = <strong>0.4208</strong></span>.
+(Buying at a fixed price shifts the mean but not the spread, so this is also the SD of profit.)</p>
+<p>For cumulative profit over <span class="math-inline">n</span> bets: mean <span class="math-inline">= 0.03n</span>, SD <span class="math-inline">= 0.4208√(n)</span>. Setting
+<span class="math-inline">0.03n = 2 × 0.4208√(n)</span>:</p>
+<div class="math-block">√(n) = (2 × 0.4208)/0.03 = 28.05    ⇒    n = <strong>787</strong></div>
+<p>Roughly 790 independent resolved forecasts. Two things to sit with: (a) this is the <em>optimistic</em>
+case, because it assumes your 0.23 is correct — if your edge is really 1.5 points you need ~3,100;
+(b) "independent" is doing enormous work, and correlated positions on the same slate inflate this
+number substantially (A6). A 12-month log that produces a few thousand resolved forecasts is
+right at the edge of being able to answer this question, which is precisely why the log starts in
+month 1 rather than after the models are good.</p>
+<hr />
+<p><strong>5.</strong> Quoted: <span class="math-inline">1/1.55 = 0.6452</span>, <span class="math-inline">1/4.20 = 0.2381</span>, <span class="math-inline">1/6.50 = 0.1538</span>.</p>
+<p><span class="math-inline">S = 1.0371</span>. <strong>Overround 3.71%.</strong> Vig as fraction of stake: <span class="math-inline">0.0371/1.0371 = 3.58%</span>.</p>
+<p>Multiplicative (<span class="math-inline">qᵢ/S</span>):
+- 0.6452/1.0371 = <strong>0.6221</strong>
+- 0.2381/1.0371 = <strong>0.2296</strong>
+- 0.1538/1.0371 = <strong>0.1483</strong>
+- Sum 1.0000 ✓</p>
+<p>Additive (<span class="math-inline">qᵢ - 0.0371/3 = qᵢ - 0.012367</span>):
+- 0.6452 − 0.0124 = <strong>0.6328</strong>
+- 0.2381 − 0.0124 = <strong>0.2257</strong>
+- 0.1538 − 0.0124 = <strong>0.1415</strong>
+- Sum 1.0000 ✓</p>
+<p>Absolute disagreements are identical in size for the outer two (≈0.0107 and ≈0.0069) but the
+<em>relative</em> disagreement is largest on the long shot: <span class="math-inline">(0.1483 - 0.1415)/0.1483 = 4.6%</span>, versus
+<span class="math-inline">1.7%</span> on the favourite.</p>
+<p>Expected direction: the additive method removes an equal absolute amount from each outcome, which
+is a proportionally much bigger haircut on a small probability. That happens to point the same way
+as the empirically documented favourite–longshot bias — books load <em>more</em> margin onto long shots,
+so the true de-vigged long-shot probability is lower than proportional removal suggests. It's the
+reason Shin/power methods exist: multiplicative normalisation is the convenient default and it is
+known to be biased on exactly the contracts where relative mispricings are largest.</p>
+<hr />
+<p><strong>6.</strong> <code>edge</code> in <code>forecast_log</code> = <span class="math-inline">p̂ - mkt<sub>y</sub>esₘid = 0.62 - 0.59 = <strong>+0.03</strong></span>.
+Yes, positive.</p>
+<p>Would you take it? You'd pay the ask, 0.61, against a belief of 0.62 — <strong>1 point of executable
+edge</strong>, before fees, before slippage, before the possibility that your model is 1 point
+miscalibrated (which, at month 1, it certainly is). The de-vigged market belief here is roughly
+<span class="math-inline">0.61/(0.61 + 0.44) = 0.581</span> using both asks, so the market's true number is even a touch below
+mid, nudging your disagreement to ~3.9 points of <em>belief</em> but leaving executable edge unchanged.</p>
+<p>The one-sentence difference: <strong><code>edge</code> measures disagreement with the market's belief and is the
+research quantity; executable edge measures disagreement net of the spread you must cross and is
+the trading quantity — and a system that reports the first as though it were the second is
+overstating itself by exactly half the spread on every single position.</strong></p>
+</details>
+</main>
+
+<footer>
+  <p><a href="learning.html">&larr; Back to the learning index</a> — generated from
+  <code>docs/learning/track-a/a1-probability-foundations.md</code>, the source of truth.</p>
+</footer>
+
+</body>
+</html>

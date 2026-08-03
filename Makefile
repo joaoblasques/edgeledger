@@ -1,4 +1,4 @@
-.PHONY: setup test lint dag-check
+.PHONY: setup test lint dag-check site site-check
 
 setup:
 	uv sync
@@ -11,3 +11,12 @@ lint:
 
 dag-check:
 	uv run python -c "import ast, pathlib; [ast.parse(p.read_text()) for p in pathlib.Path('dags').glob('*.py')]"
+
+# Regenerate the learning pages from docs/learning/*.md (the source of truth).
+site:
+	uv run python3 site/build_learning.py
+
+# Fail if the generated pages are invalid or stale relative to docs/learning/*.md.
+site-check: site
+	uv run --quiet --with html5lib python3 site/validate.py
+	@git diff --quiet -- site/ || (echo "site/ is stale — 'make site' changed files; commit them" && exit 1)
