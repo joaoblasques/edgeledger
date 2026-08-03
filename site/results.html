@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Results — EdgeLedger</title>
+<meta name="description" content="EdgeLedger results, reported quarterly against the market baseline. Month 1: zero forecasts logged so far.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Results</h1>
+  <p class="tagline">Reported quarterly, always against the market's own price.</p>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="methodology.html">Methodology</a>
+    <a href="results.html" aria-current="page">Results</a>
+    <a href="learning.html">Learning</a>
+  </nav>
+</header>
+
+<main>
+
+<div class="status">
+  <p><strong>Forecasts logged to date: 0.</strong></p>
+  <p><strong>Scored forecasts: 0.</strong> Nothing has resolved, because nothing has been
+  forecast.</p>
+  <p><strong>Next reporting milestone:</strong> first quarterly report, once the log holds a
+  meaningful sample of resolved markets.</p>
+</div>
+
+<h2>Why this page is empty</h2>
+
+<p>Month 1 is ingestion and the forecast log itself. There is no model yet, so there are no
+forecasts, so there is nothing to score. This page exists now anyway, empty, because publishing
+the scoreboard before the scores arrive is the whole point: the metrics below were chosen and
+committed to in advance, not selected afterwards from whichever ones happened to look good.</p>
+
+<p>The table below is what will be reported. It will be filled in as forecasts resolve, whatever
+the numbers turn out to be.</p>
+
+<h2>The scoreboard</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      <th>Model</th>
+      <th>Market baseline</th>
+      <th>Delta</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Brier score</td>
+      <td class="pending">—</td>
+      <td class="pending">—</td>
+      <td class="pending">—</td>
+    </tr>
+    <tr>
+      <td>Log loss</td>
+      <td class="pending">—</td>
+      <td class="pending">—</td>
+      <td class="pending">—</td>
+    </tr>
+    <tr>
+      <td>Calibration error</td>
+      <td class="pending">—</td>
+      <td class="pending">—</td>
+      <td class="pending">—</td>
+    </tr>
+    <tr>
+      <td>Closing-line value</td>
+      <td class="pending">—</td>
+      <td class="pending">—</td>
+      <td class="pending">—</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>A delta of zero, or a negative one, is a real result and will be published as such. If the
+edge turns out to be nil after fees, that is the finding — and a measurement system that could
+only ever report good news would not be worth building.</p>
+
+<h2>Verifying the record</h2>
+
+<p>Every forecast row is hash-chained to the row before it. The daily head hash is published in
+the repository, so the entire history can be checked end to end by anyone: recompute the chain
+from the log, compare it to the published head, and any edit or deletion anywhere in the history
+shows up as a mismatch.</p>
+
+<p>This is what turns a track record from a claim into something checkable. Once the log starts
+filling, the verification instructions will be published here alongside the numbers.</p>
+
+</main>
+
+<footer>
+  <p>EdgeLedger — month 1 of 12. No forecasts logged yet.</p>
+</footer>
+
+</body>
+</html>

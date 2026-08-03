@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Methodology — EdgeLedger</title>
+<meta name="description" content="How EdgeLedger forecasts are written, hash-chained, and scored against the market's own price as the baseline.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Methodology</h1>
+  <p class="tagline">How a forecast is written, and how it gets scored.</p>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="methodology.html" aria-current="page">Methodology</a>
+    <a href="results.html">Results</a>
+    <a href="learning.html">Learning</a>
+  </nav>
+</header>
+
+<main>
+
+<p>This page mirrors <code>docs/methodology.md</code> in the repository, which is the source of
+truth and is updated whenever scoring logic changes.</p>
+
+<h2>What gets forecast</h2>
+
+<p>Every tracked open market, on both venues, gets a <code>p_hat</code> — the probability of the
+"yes" outcome — from whichever model is currently in production for that market category. Month 1
+runs exactly two deliberately naive models; real models arrive from month 5.</p>
+
+<h2>How a forecast is written</h2>
+
+<ol>
+  <li>A model computes <code>p_hat</code> from a <code>feature_vector</code> built entirely from
+  bronze data captured at or before <code>feature_cutoff_ts_utc</code>.</li>
+  <li>The market's own state (bid, ask, mid, spread, depth, volume) is read <strong>at that same
+  moment</strong> and embedded in the row. It is never joined in afterwards.</li>
+  <li>The row is hash-chained to the previous row and appended. It is never edited again.</li>
+</ol>
+
+<h2>The naive baselines (month 1)</h2>
+
+<p><strong><code>market_mirror</code> v1.0.0</strong> — <code>p_hat = mkt_yes_mid</code> at T-24h
+before close. Zero edge by construction. It exists to validate the pipeline end to end: if
+<code>market_mirror</code>'s Brier score isn't statistically indistinguishable from
+<code>brier_market</code>, something in the pipeline is broken, not the model.</p>
+
+<p><strong><code>base_rate</code> v1.0.0</strong> — <code>p_hat</code> is the historical frequency
+of the outcome class. Genuinely naive, and expected to lose to the market. The point is to have an
+honest floor.</p>
+
+<p>Every later model, from month 5 onward, is judged against both.</p>
+
+<h2>Scoring</h2>
+
+<p>Scoring happens downstream, in the recomputable <code>forecast_scored</code> view, joining
+<code>forecast_log</code> against resolutions and closing prices at query time. The forecast row
+itself never learns the outcome.</p>
+
+<p>Metrics are always reported as a pair — model against market baseline:</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Metric</th><th>What it measures</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Brier score</strong> (<code>brier</code> vs <code>brier_market</code>)</td>
+      <td>Mean squared error of the probability forecast.</td>
+    </tr>
+    <tr>
+      <td><strong>Log loss</strong></td>
+      <td>Penalizes confident wrong calls more heavily than Brier does.</td>
+    </tr>
+    <tr>
+      <td><strong>Calibration</strong></td>
+      <td>Do forecasts of "70%" resolve yes about 70% of the time, with a bootstrap confidence
+      interval.</td>
+    </tr>
+    <tr>
+      <td><strong>Closing-line value (CLV)</strong></td>
+      <td>The market's own mid at forecast time minus its mid at close. The metric a desk trusts
+      most, because it isolates timing skill from luck.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>No single-number "accuracy" is ever reported on its own. It is meaningless without the market
+baseline alongside it.</p>
+
+<h2>What's out of scope so far</h2>
+
+<p>No real forecasting model, no sizing or Kelly logic, and no paper execution exists yet. This
+page grows a section per model version as they ship — Elo and Bradley-Terry from month 3, logistic
+regression from month 5, Poisson and Dixon-Coles from month 7.</p>
+
+</main>
+
+<footer>
+  <p>EdgeLedger — month 1 of 12. Source of truth: <code>docs/methodology.md</code>.</p>
+</footer>
+
+</body>
+</html>

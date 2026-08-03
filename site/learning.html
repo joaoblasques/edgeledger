@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Learning — EdgeLedger</title>
+<meta name="description" content="The twelve-month learning curriculum behind EdgeLedger: probability and inference, and modelling foundations.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Learning</h1>
+  <p class="tagline">Two tracks, run in parallel across the twelve months.</p>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="methodology.html">Methodology</a>
+    <a href="results.html">Results</a>
+    <a href="learning.html" aria-current="page">Learning</a>
+  </nav>
+</header>
+
+<main>
+
+<p>Building the system and learning the theory happen together, roughly six hours a week combined.
+Track A asks whether an edge is real and how much to bet. Track B asks where a probability
+actually comes from. The rungs are sequenced so the theory arrives just before the code needs
+it.</p>
+
+<p>Concept notes are written as each idea is actually learned, rather than pre-created — so the
+gaps in these tables are an honest picture of where the work has and hasn't reached.</p>
+
+<h2>Track A — Probability &amp; Inference</h2>
+
+<p><em>"Is my edge real, and how much do I bet?"</em></p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Months</th><th>Rung</th><th>Core question</th><th>Key concepts</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1–2</td><td>A1. Probability foundations</td><td>What is a fair price?</td>
+      <td>Conditional probability, Bayes, expectation, variance, odds↔probability↔log-odds,
+      vig/overround removal</td>
+    </tr>
+    <tr>
+      <td>3–4</td><td>A2. Distributions &amp; calibration</td><td>Are my probabilities honest?</td>
+      <td>Bernoulli, binomial, Poisson, normal; Brier score, log loss, reliability diagrams,
+      calibration vs discrimination</td>
+    </tr>
+    <tr>
+      <td>5–6</td><td>A3. Statistical inference</td><td>Is my edge luck?</td>
+      <td>MLE, sampling distributions, confidence intervals, bootstrap, hypothesis testing,
+      multiple-comparison correction, effective sample size</td>
+    </tr>
+    <tr>
+      <td>7–8</td><td>A4. Risk &amp; sizing</td><td>How much do I bet?</td>
+      <td>Kelly criterion (derived from scratch), fractional Kelly, variance drag, correlated
+      positions, drawdown Monte Carlo, ruin probability</td>
+    </tr>
+    <tr>
+      <td>9–10</td><td>A5. Market microstructure</td><td>How is edge captured or lost?</td>
+      <td>Order books, bid-ask spread, adverse selection, inventory risk, closing-line value
+      theory, market efficiency</td>
+    </tr>
+    <tr>
+      <td>11–12</td><td>A6. Portfolio &amp; capacity</td><td>How much does this scale?</td>
+      <td>Correlation across markets, capacity curves, slippage models, Sharpe/Sortino, PnL
+      attribution</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Track B — Modelling Foundations</h2>
+
+<p><em>"Where does a probability actually come from?"</em></p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Months</th><th>Rung</th><th>Core question</th><th>Key concepts</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1–2</td><td>B1. What a model is</td><td>Why does a model beat a guess?</td>
+      <td>Features → probability mapping, generative vs discriminative, signal vs noise,
+      bias-variance decomposition, why log-odds is the natural space for binary event pricing</td>
+    </tr>
+    <tr>
+      <td>3–4</td><td>B2. Baselines that are hard to beat</td><td>What am I competing against?</td>
+      <td>Market price as baseline, historical base rates, Elo, Bradley-Terry paired-comparison
+      models. <strong>Rule: never build a model without beating a baseline first.</strong></td>
+    </tr>
+    <tr>
+      <td>5–6</td><td>B3. Regression</td><td>How do I map features to probability?</td>
+      <td>Linear → logistic regression, link functions, coefficient interpretation in log-odds,
+      regularisation (L1/L2), feature scaling and encoding</td>
+    </tr>
+    <tr>
+      <td>6–7</td><td>B4. Process models</td><td>How do I model the mechanism, not the outcome?</td>
+      <td>Poisson and negative binomial scoring processes, Dixon-Coles adjustment, simulation from
+      a fitted process to derive any derived market</td>
+    </tr>
+    <tr>
+      <td>7–8</td><td>B5. Bayesian &amp; hierarchical</td><td>How do I handle small samples?</td>
+      <td>Priors and posteriors, conjugate updating, partial pooling and shrinkage for team and
+      player effects, uncertainty quantification, credible intervals</td>
+    </tr>
+    <tr>
+      <td>9–10</td><td>B6. Validation &amp; overfitting</td><td>Is this backtest a lie?</td>
+      <td>Time-series cross-validation, walk-forward, look-ahead leakage, survivorship bias,
+      deflated Sharpe, backtest overfitting, out-of-sample discipline</td>
+    </tr>
+    <tr>
+      <td>11–12</td><td>B7. Ensembling &amp; recalibration</td><td>How do I combine models and the market?</td>
+      <td>Model blending, logarithmic opinion pooling, shrinking toward market price, Platt
+      scaling, isotonic regression, stacking</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>B6 is the highest-value rung for this project's specific risk. An AI coding agent will
+cheerfully hand you a beautiful backtest built on leakage; B6 is what stops that, and it is why
+the point-in-time contract is enforced in code and tests rather than left to discipline.</p>
+
+</main>
+
+<footer>
+  <p>EdgeLedger — month 1 of 12. Source of truth: <code>docs/learning/</code>.</p>
+</footer>
+
+</body>
+</html>

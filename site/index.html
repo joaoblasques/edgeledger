@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EdgeLedger — a verifiable twelve-month forecasting record</title>
+<meta name="description" content="A twelve-month, running, public system for pricing prediction markets, with an append-only hash-chained record of every forecast it has ever made.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>EdgeLedger</h1>
+  <p class="tagline">A twelve-month, running, public system for pricing prediction markets — and an
+  immutable, timestamped record of every forecast it has ever made.</p>
+  <nav>
+    <a href="index.html" aria-current="page">Overview</a>
+    <a href="methodology.html">Methodology</a>
+    <a href="results.html">Results</a>
+    <a href="learning.html">Learning</a>
+  </nav>
+</header>
+
+<main>
+
+<div class="status">
+  <p><strong>Status: month 1 of 12.</strong> Building ingestion and the forecast log itself.</p>
+  <p><strong>Forecasts logged so far: 0.</strong> No model, sizing logic, or paper execution
+  exists yet — those are later milestones, deliberately.</p>
+</div>
+
+<h2>Why this exists</h2>
+
+<p>Most trading track records are unverifiable. No one outside the author can tell whether a
+backtest used information that didn't exist yet, or whether a good year survived because the bad
+trades were quietly dropped. EdgeLedger is built to make that kind of doubt impossible.</p>
+
+<p>The claim this project exists to prove:</p>
+
+<blockquote>I build the measurement and modelling layer that lets a desk know whether its edge is
+real — and I have twelve months of timestamped, out-of-sample forecasts to prove the layer
+works.</blockquote>
+
+<p>This site is published from month 1, before any results exist, on purpose. A methodology
+committed to in public <em>before</em> the numbers arrive cannot be quietly retrofitted to
+flatter them afterwards. That ordering is the point — and it is checkable, because the whole
+record is timestamped and hash-chained.</p>
+
+<h2>What it does</h2>
+
+<p>EdgeLedger ingests live order books, trades, and resolutions from event-contract exchanges
+(Kalshi and Polymarket to begin with), and writes every forecast it generates to an
+<strong>append-only, hash-chained log</strong> before the outcome is known. Nothing in that log
+can be edited or deleted after the fact. Corrections are new rows, never overwrites.</p>
+
+<p>Every forecast carries:</p>
+<ul>
+  <li>the market's price <em>at the moment the forecast was made</em> — never joined in after the fact</li>
+  <li>the exact feature data used, restricted to what existed at that timestamp</li>
+  <li>a cryptographic link to the row before it, so the whole history verifies end to end</li>
+</ul>
+
+<p>The system is pregame-only and hold-to-resolution. It never trades in-play, and it runs
+unattended — no action requires a human at a screen during a live event.</p>
+
+<h2>The immutability guarantee</h2>
+
+<p>The <code>forecast_log</code> table is append-only by construction:</p>
+
+<ol>
+  <li><strong>No UPDATE, no DELETE, ever.</strong> Enforced by the writer and asserted in tests.</li>
+  <li><strong>Market state is captured at forecast time, never joined afterwards.</strong>
+  Backfilling market price after the outcome is known is the fastest way to fake an edge, and the
+  first thing an experienced reviewer checks for.</li>
+  <li><strong><code>feature_cutoff_ts_utc</code> is a contract.</strong> Every feature used by a
+  forecast must be derivable from data captured at or before that timestamp. This is the leakage
+  firewall.</li>
+  <li><strong>Every row is hash-chained.</strong> The daily head hash is published, turning "trust
+  my track record" into a cryptographic proof that nothing was edited in hindsight.</li>
+  <li><strong><code>seq</code> is gapless and monotonic.</strong> A gap means a lost write, and is
+  monitored as an incident.</li>
+  <li><strong>Every metric is reported against the market's own price as a baseline.</strong> Raw
+  accuracy numbers are not reported on their own; only the delta against the market matters.</li>
+</ol>
+
+<h2>Honest reporting, including zero</h2>
+
+<p>Twelve months of a deliberately naive baseline, progressively beaten — or not — by
+increasingly serious models, reported quarterly against the market's own price. If the edge turns
+out to be zero after fees, that is a valid result and it gets reported as one. A system that can
+only report good news isn't a measurement system.</p>
+
+<h2>Non-goals</h2>
+
+<ul>
+  <li>Trading real capital. This is a research and measurement system, not a trading business.</li>
+  <li>Live or in-game trading of any kind.</li>
+  <li>There is no order-placement code anywhere in this project.</li>
+</ul>
+
+<h2>Stack</h2>
+
+<p>Python 3.12, <code>uv</code>, <code>httpx</code>, <code>pydantic</code>, <code>polars</code>,
+<code>deltalake</code>, <code>duckdb</code>, Airflow (local), <code>pytest</code>,
+<code>ruff</code>. No Spark — the data volume doesn't justify it.</p>
+
+</main>
+
+<footer>
+  <p>EdgeLedger — month 1 of 12. Updated as the work happens.</p>
+</footer>
+
+</body>
+</html>
