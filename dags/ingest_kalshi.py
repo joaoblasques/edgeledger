@@ -1,34 +1,46 @@
-"""Airflow DAG: ingest_kalshi. STUB with task graph, no logic — due week 2.
+"""Airflow DAG: ingest_kalshi — markets and trades.
 
-Schedule: */15 * * * * (every 15 min)
+Schedule: every 15 minutes.
 
-Task graph:
-    discover_markets          # GET /markets?status=open, paginate
-      -> snapshot_market_state  # extract prices/volume per market
-      -> fetch_orderbooks       # top-N liquid markets only (auth'd, rate-limited)
-      -> fetch_trades           # GET /markets/trades, cursor from ingest_state watermark
-
-Watermark for trades stored in a small `ingest_state` Delta table keyed by
-(venue, stream) — read at task start, written at task end, so a restart resumes
-from the last successful cursor rather than the beginning.
+Unauthenticated endpoints only. There is deliberately no orderbook task: Kalshi's depth
+endpoint needs an account this project cannot obtain, and Polymarket supplies depth
+instead (ADR-0002). If that ever changes, a `fetch_orderbooks` task slots in here — the
+client method and its signing requirement are already mapped in `clients/kalshi.py`.
 """
 
-# from airflow.decorators import dag, task
-#
-# @dag(schedule="*/15 * * * *", catchup=False)
-# def ingest_kalshi():
-#     @task
-#     def discover_markets(): ...
-#     @task
-#     def snapshot_market_state(markets): ...
-#     @task
-#     def fetch_orderbooks(markets): ...
-#     @task
-#     def fetch_trades(): ...
-#
-#     markets = discover_markets()
-#     snapshot_market_state(markets)
-#     fetch_orderbooks(markets)
-#     fetch_trades()
-#
-# ingest_kalshi()
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+import pendulum
+from airflow.decorators import dag, task
+
+from edgeledger.config.settings import get_settings
+from edgeledger.ingest import ingest_kalshi_markets, ingest_kalshi_trades
+
+
+@dag(
+    dag_id="ingest_kalshi",
+    schedule="*/15 * * * *",
+    start_date=pendulum.datetime(2026, 8, 1, tz="UTC"),
+    catchup=False,
+    max_active_runs=1,
+    tags=["ingest", "kalshi", "bronze"],
+)
+def ingest_kalshi():
+    data_dir = Path(get_settings().edgeledger_data_dir)
+
+    @task
+    def discover_markets(**context) -> int:
+        markets = asyncio.run(ingest_kalshi_markets(data_dir, run_id=context["run_id"]))
+        return len(markets)
+
+    @task
+    def fetch_trades(**context) -> int:
+        return asyncio.run(ingest_kalshi_trades(data_dir, run_id=context["run_id"]))
+
+    discover_markets() >> fetch_trades()
+
+
+ingest_kalshi()

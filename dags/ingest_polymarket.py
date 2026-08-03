@@ -1,33 +1,56 @@
-"""Airflow DAG: ingest_polymarket. STUB with task graph, no logic — due week 2.
+"""Airflow DAG: ingest_polymarket — markets, orderbook depth, and trades.
 
-Schedule: */15 * * * * (every 15 min)
+Schedule: every 15 minutes.
 
-Task graph:
-    discover_markets_gamma    # GET /markets?active=true, paginate
-      -> extract_token_ids     # conditionId + clobTokenIds -> dim table
-      -> fetch_books_clob      # GET /book?token_id=... for tracked tokens
-      -> fetch_trades_data_api
+Polymarket is the depth venue (ADR-0002), so this DAG supplies the book data the project's
+spread and CLV work depends on.
 
-Gotcha: Gamma's 60 req/min limit will bite immediately. Batch discovery, cache
-conditionId -> tokenIds mapping, and only re-fetch metadata daily (not every run).
+Discovery runs once per DAG run and its result is passed to the book and trade tasks, so
+Gamma's 60 req/min limit is not spent rediscovering the same markets three times over.
 """
 
-# from airflow.decorators import dag, task
-#
-# @dag(schedule="*/15 * * * *", catchup=False)
-# def ingest_polymarket():
-#     @task
-#     def discover_markets_gamma(): ...
-#     @task
-#     def extract_token_ids(markets): ...
-#     @task
-#     def fetch_books_clob(token_ids): ...
-#     @task
-#     def fetch_trades_data_api(): ...
-#
-#     markets = discover_markets_gamma()
-#     token_ids = extract_token_ids(markets)
-#     fetch_books_clob(token_ids)
-#     fetch_trades_data_api()
-#
-# ingest_polymarket()
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+import pendulum
+from airflow.decorators import dag, task
+
+from edgeledger.config.settings import get_settings
+from edgeledger.ingest import (
+    ingest_polymarket_books,
+    ingest_polymarket_markets,
+    ingest_polymarket_trades,
+)
+
+
+@dag(
+    dag_id="ingest_polymarket",
+    schedule="*/15 * * * *",
+    start_date=pendulum.datetime(2026, 8, 1, tz="UTC"),
+    catchup=False,
+    max_active_runs=1,  # overlapping runs would fight over the same rate limit
+    tags=["ingest", "polymarket", "bronze"],
+)
+def ingest_polymarket():
+    data_dir = Path(get_settings().edgeledger_data_dir)
+
+    @task
+    def discover_markets(**context) -> list[dict]:
+        return asyncio.run(ingest_polymarket_markets(data_dir, run_id=context["run_id"]))
+
+    @task
+    def fetch_books(markets: list[dict], **context) -> int:
+        return asyncio.run(ingest_polymarket_books(markets, data_dir, run_id=context["run_id"]))
+
+    @task
+    def fetch_trades(markets: list[dict], **context) -> int:
+        return asyncio.run(ingest_polymarket_trades(markets, data_dir, run_id=context["run_id"]))
+
+    markets = discover_markets()
+    fetch_books(markets)
+    fetch_trades(markets)
+
+
+ingest_polymarket()
