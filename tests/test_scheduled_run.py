@@ -1,4 +1,4 @@
-"""Tests for the scheduled cycle and the R2 archiver.
+"""Tests for the scheduled cycle and the bronze archiver (Backblaze B2 / Cloudflare R2).
 
 The properties that matter here are about failure behaviour: an unattended twelve-month
 schedule must degrade in the right direction. A venue outage or a dead archive must not
@@ -13,7 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from edgeledger.archive import R2Config, archive_bronze, load_r2_config
+from edgeledger.archive import (
+    ArchiveConfig,
+    archive_bronze,
+    load_archive_config,
+)
 from edgeledger.bronze.schemas import VenueMarketSnapshot
 from edgeledger.bronze.writers import write_rows
 from edgeledger.forecast.log import read_rows
@@ -45,7 +49,7 @@ def test_r2_config_absent_when_env_incomplete(monkeypatch):
     monkeypatch.delenv("R2_SECRET_ACCESS_KEY", raising=False)
     monkeypatch.setenv("R2_BUCKET", "bucket")
 
-    assert load_r2_config() is None
+    assert load_archive_config() is None
 
 
 def test_r2_config_loads_when_complete(monkeypatch):
@@ -57,16 +61,76 @@ def test_r2_config_loads_when_complete(monkeypatch):
     ]:
         monkeypatch.setenv(name, value)
 
-    config = load_r2_config()
+    config = load_archive_config()
     assert config is not None
     assert config.endpoint_url == "https://acct.r2.cloudflarestorage.com"
+
+
+B2_ENV = {
+    "B2_KEY_ID": "0035abc",
+    "B2_APPLICATION_KEY": "K003secret",
+    "B2_BUCKET": "edgeledger-bronze",
+    "B2_ENDPOINT": "s3.eu-central-003.backblazeb2.com",
+}
+
+
+def _set_b2(monkeypatch, **overrides):
+    for name in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in {**B2_ENV, **overrides}.items():
+        monkeypatch.setenv(name, value)
+
+
+def test_b2_config_loads_and_derives_region(monkeypatch):
+    """B2 validates the region and rejects a mismatch with SignatureDoesNotMatch, which
+    reads as a credential problem. It is parsed from the endpoint, never guessed."""
+    _set_b2(monkeypatch)
+
+    config = load_archive_config()
+
+    assert config is not None
+    assert config.endpoint_url == "https://s3.eu-central-003.backblazeb2.com"
+    assert config.region == "eu-central-003"
+    assert config.bucket == "edgeledger-bronze"
+
+
+def test_b2_endpoint_accepts_a_pasted_https_url(monkeypatch):
+    """Backblaze's console shows the endpoint bare, but pasting the full URL is the
+    obvious mistake to make — accept both rather than failing obscurely."""
+    _set_b2(monkeypatch, B2_ENDPOINT="https://s3.us-west-004.backblazeb2.com/")
+
+    config = load_archive_config()
+
+    assert config is not None
+    assert config.endpoint_url == "https://s3.us-west-004.backblazeb2.com"
+    assert config.region == "us-west-004"
+
+
+def test_b2_takes_precedence_when_both_are_configured(monkeypatch):
+    _set_b2(monkeypatch)
+    monkeypatch.setenv("R2_ACCOUNT_ID", "acct")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv("R2_BUCKET", "r2-bucket")
+
+    config = load_archive_config()
+
+    assert config is not None
+    assert "backblazeb2.com" in config.endpoint_url
+
+
+def test_partial_b2_config_is_unconfigured(monkeypatch):
+    _set_b2(monkeypatch)
+    monkeypatch.delenv("B2_APPLICATION_KEY")
+
+    assert load_archive_config() is None
 
 
 def test_blank_env_values_count_as_unconfigured(monkeypatch):
     """GitHub Actions injects empty strings for secrets that were never set."""
     for name in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"):
         monkeypatch.setenv(name, "  ")
-    assert load_r2_config() is None
+    assert load_archive_config() is None
 
 
 def test_archive_is_a_noop_without_config(tmp_path, monkeypatch):
@@ -92,8 +156,11 @@ def test_archive_failure_is_reported_not_raised(tmp_path, monkeypatch):
             raise EndpointConnectionError(endpoint_url="https://unreachable.invalid")
 
     monkeypatch.setattr("edgeledger.archive._client", lambda config: DeadClient())
-    config = R2Config(
-        account_id="acct", access_key_id="k", secret_access_key="s", bucket="bucket"
+    config = ArchiveConfig(
+        access_key_id="k",
+        secret_access_key="s",
+        bucket="bucket",
+        endpoint_url="https://example.invalid",
     )
 
     uploaded, failed = archive_bronze(tmp_path, config=config)
@@ -112,8 +179,11 @@ def test_archive_uploads_every_bronze_partition(tmp_path, monkeypatch):
             keys.append(key)
 
     monkeypatch.setattr("edgeledger.archive._client", lambda config: RecordingClient())
-    config = R2Config(
-        account_id="acct", access_key_id="k", secret_access_key="s", bucket="bucket"
+    config = ArchiveConfig(
+        access_key_id="k",
+        secret_access_key="s",
+        bucket="bucket",
+        endpoint_url="https://example.invalid",
     )
 
     uploaded, failed = archive_bronze(tmp_path, config=config)

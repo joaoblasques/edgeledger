@@ -37,8 +37,9 @@ the chain.
 - **The forecast log is committed to the repository.** `.gitignore` uses `data/*` with an
   explicit `!data/forecast_log.jsonl` negation. (`data/` would not work: excluding the
   directory stops git descending into it and silently kills the negation.)
-- **Bronze is archived to Cloudflare R2** (`src/edgeledger/archive.py`), S3-compatible with
-  no egress fees. Object keys mirror the on-disk partition layout.
+- **Bronze is archived to S3-compatible object storage** (`src/edgeledger/archive.py`).
+  Backblaze B2 is in use; Cloudflare R2 is supported by the same code path. Object keys
+  mirror the on-disk partition layout.
 - `docs/chain-head.json` is republished every run: head hash, row count, timestamp.
 - `concurrency: forecast-log` with `cancel-in-progress: false` serialises runs. Two
   concurrent runs minting `seq` from the same chain would race (invariant 5), and the
@@ -66,8 +67,11 @@ precisely because every row carries its own `capture_ts_utc`: a late run is stil
 run, and the log records when the forecast actually happened rather than when it was
 scheduled.
 
-**Cost:** R2 at ~28 GiB/year is roughly $0.40/month, with free egress. Actions minutes are
-free for a public repository.
+**Cost:** the 28 GiB/year figure above assumed 15-minute ingestion. At the 6-hourly
+cadence actually scheduled, bronze accumulates roughly 4x slower (~7 GiB/year), which sits
+inside Backblaze B2's 10 GB free tier for the whole first year. Actions minutes are free
+for a public repository. B2 was chosen over R2 because its free tier needs no payment
+method.
 
 **Forecloses:** nothing. The four Airflow DAGs remain valid and untouched — if this moves
 to a real server later, they are the deployment path, and `scheduled_run.py` is what they
@@ -77,5 +81,5 @@ would call anyway.
 
 - `.github/workflows/forecast.yml` — the schedule.
 - `src/edgeledger/scheduled_run.py` — one cycle: ingest → forecast → archive → verify.
-- `src/edgeledger/archive.py` — R2 upload, best-effort by design.
+- `src/edgeledger/archive.py` — bucket upload (B2 or R2), best-effort by design.
 - `docs/setup-scheduling.md` — the credential steps the operator must do by hand.

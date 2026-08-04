@@ -4,50 +4,68 @@ What has to be done by hand to start the twelve-month clock. Everything else is 
 committed and working. See [ADR-0003](adr/0003-scheduling-and-storage.md) for why it is
 built this way.
 
-The workflow runs **without** R2 — bronze archiving is skipped and forecasts are still
+The workflow runs **without** an archive bucket — bronze archiving is skipped and forecasts are still
 written and committed. So step 1 is optional if you only want the forecast log; it is
 required to keep raw order books for the feature work in months 5–12.
 
 ---
 
-## 1. Cloudflare R2 bucket (~10 minutes)
+## 1. Backblaze B2 bucket (~8 minutes)
 
-R2 is S3-compatible with no egress fees. About $0.40/month at this volume.
+B2 is S3-compatible. The free tier is 10 GB of storage with no payment method required,
+which covers the whole first year at the 6-hourly cadence.
 
-1. Sign in at **dash.cloudflare.com** → **R2** in the sidebar → **Create bucket**
-2. Name it `edgeledger-bronze`. Location: automatic. No public access.
-3. Copy your **Account ID** — it is in the R2 sidebar, and in the dashboard URL:
-   `dash.cloudflare.com/<ACCOUNT_ID>/r2`
-4. **Manage R2 API Tokens** → **Create API token**
-   - Permission: **Object Read & Write**
-   - Scope it to the `edgeledger-bronze` bucket only
-   - TTL: no expiry (or set a reminder to rotate)
-5. Copy the **Access Key ID** and **Secret Access Key**. The secret is shown **once**.
+1. Sign up at **backblaze.com/sign-up/cloud-storage** (email + password; no card for the
+   free tier). Verify your email, and enable two-factor auth when prompted.
+2. Left sidebar → **B2 Cloud Storage** → **Buckets** → **Create a Bucket**.
+   - **Bucket Unique Name:** `edgeledger-bronze` — B2 bucket names are globally unique
+     across all customers, so if it is taken add a suffix (`edgeledger-bronze-jb`) and use
+     whatever you chose as `B2_BUCKET` below.
+   - **Files in Bucket:** **Private**
+   - Default encryption: disabled. Object lock: disabled.
+3. Click **Create a Bucket**.
+4. On the bucket row, note the **Endpoint**, shown as
+   `s3.eu-central-003.backblazeb2.com` (your region digits will differ). Copy it.
+5. Left sidebar → **Application Keys** → **Add a New Application Key**.
+   - **Name of Key:** `edgeledger-ci`
+   - **Allow access to Bucket(s):** select just `edgeledger-bronze` — not "All"
+   - **Type of Access:** **Read and Write**
+   - Leave the file-prefix and duration fields empty
+6. Click **Create New Key**. The next screen shows **keyID** and **applicationKey**.
+   The application key is displayed **once** — copy both now.
 
 ## 2. Add the GitHub secrets (~2 minutes)
 
-Repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**.
-Four secrets, named exactly:
-
-| Name | Value |
-|---|---|
-| `R2_ACCOUNT_ID` | your Cloudflare account ID |
-| `R2_ACCESS_KEY_ID` | from step 1.5 |
-| `R2_SECRET_ACCESS_KEY` | from step 1.5 |
-| `R2_BUCKET` | `edgeledger-bronze` |
-
-Or from the terminal:
+From the terminal, one at a time. Each command prompts for the value, so nothing lands in
+your shell history — never pass a secret as a command-line argument.
 
 ```
-gh secret set R2_ACCOUNT_ID
-gh secret set R2_ACCESS_KEY_ID
-gh secret set R2_SECRET_ACCESS_KEY
-gh secret set R2_BUCKET
+gh secret set B2_KEY_ID
+gh secret set B2_APPLICATION_KEY
+gh secret set B2_BUCKET
+gh secret set B2_ENDPOINT
 ```
 
-Each prompts for the value, so nothing lands in your shell history.
+| Secret | Value | From |
+|---|---|---|
+| `B2_KEY_ID` | the **keyID** | step 1.6 |
+| `B2_APPLICATION_KEY` | the **applicationKey** | step 1.6 |
+| `B2_BUCKET` | `edgeledger-bronze` | step 1.2 |
+| `B2_ENDPOINT` | `s3.<region>.backblazeb2.com` | step 1.4 |
 
-For local runs, put the same four in `.env` (already gitignored).
+`B2_ENDPOINT` accepts the bare host or a full `https://` URL — both work, and the region
+is parsed out of it. Getting the region wrong makes B2 return `SignatureDoesNotMatch`,
+which looks like a bad key but is not, so it is derived from the endpoint rather than
+guessed.
+
+*(Browser alternative: repo → Settings → Secrets and variables → Actions → New repository
+secret, four times.)*
+
+For local runs, put the same four in `.env` (already gitignored) — see `.env.example`.
+
+**Cloudflare R2 instead?** The code supports both. Set `R2_ACCOUNT_ID`,
+`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_BUCKET` and leave the B2 ones unset.
+If both are configured, B2 wins.
 
 ## 3. Check it works (~1 minute)
 
@@ -60,7 +78,7 @@ The run summary shows the JSON: markets ingested, forecasts written, rows in the
 the chain head. A successful run commits `data/forecast_log.jsonl` and
 `docs/chain-head.json` back to `master`.
 
-To verify R2 specifically:
+To verify the archive bucket specifically:
 
 ```
 uv run python3 -c "from edgeledger.archive import verify_connection; print(verify_connection())"
@@ -102,7 +120,7 @@ edited after the fact, the recomputed chain would not match.
 uv run python3 -m edgeledger.scheduled_run --data-dir data --no-archive
 ```
 
-`--no-archive` skips R2. Add `--market-pages 1 --book-limit 3` for a fast smoke test.
+`--no-archive` skips the bucket upload. Add `--market-pages 1 --book-limit 3` for a fast smoke test.
 
 ## If a run fails
 
@@ -112,4 +130,4 @@ uv run python3 -m edgeledger.scheduled_run --data-dir data --no-archive
 - **Venue outage** — the run succeeds with `forecasts: 0` and a non-null `ingest_error`.
   Nothing to do; the next cycle recovers.
 - **Archive failed** — `archive_failed` is non-zero in the summary. Forecasts were still
-  written. Check the R2 credentials.
+  written. Check the B2 credentials and endpoint region.

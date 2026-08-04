@@ -44,6 +44,14 @@ jobs:
 
       - name: Run one forecast cycle
         env:
+          # Backblaze B2 (in use — see docs/setup-scheduling.md). Absent secrets arrive as
+          # empty strings, which load_archive_config treats as "not configured", so the
+          # run degrades to no archiving rather than failing.
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+          B2_ENDPOINT: ${{ secrets.B2_ENDPOINT }}
+          # Cloudflare R2 (alternative provider, kept wired for a switch back).
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
