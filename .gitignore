@@ -21,6 +21,12 @@ data/*
 # chain can be verified by anyone from the repo alone.
 !data/forecast_log.jsonl
 
+# Private learning records. The *material* (docs/learning/) is public and feeds the site;
+# these are the session logs of actually learning it — wrong turns, gaps, "I don't
+# understand X" — and they are deliberately never published. If a session log might go
+# public, the honest record stops being honest.
+learning-log/
+
 # Secrets
 .env
 *.pem
