@@ -41,6 +41,30 @@ runs exactly two deliberately naive models; real models arrive from month 5.</p>
   <li>The row is hash-chained to the previous row and appended. It is never edited again.</li>
 </ol>
 
+<h2>How the point-in-time claim is enforced</h2>
+
+<p>Step 1 is a claim about evidence, and a claim about evidence is worth what its test is worth.
+The cutoff is enforced in two independent places in the code — when the newest snapshot per market
+is selected, and again inside <code>build_feature_vector</code>, the single point where bronze rows
+are admitted to a forecast. The rule is
+<code>capture_ts_utc &lt;= feature_cutoff_ts_utc</code> and nothing else: no venue timestamp, no
+tolerance window. Any tolerance is a leak, and a leak is indistinguishable from a model that
+appears to work.</p>
+
+<p>Three tests cover it at different altitudes: the filter in isolation; every persisted row's
+recorded source against its own cutoff; and the firewall with market selection neutralised, so it
+stands alone. That third test exists because of a real finding — the two guards cover for each
+other, so a black-box run proves neither individually, and an earlier version of the end-to-end
+test passed against a deliberately broken firewall.</p>
+
+<p>Each test was verified by mutation: the firewall was replaced with a pass-through, each test
+confirmed to fail, then the firewall restored. <strong>A test that has never been seen to fail is
+not evidence.</strong></p>
+
+<p>What this does not cover: correctly enforcing a cutoff is not the same as choosing the right
+one. Nothing here detects a cutoff that is honestly enforced and wrongly set — that is a review
+question, not a test question.</p>
+
 <h2>The naive baselines (month 1)</h2>
 
 <p><strong><code>market_mirror</code> v1.0.0</strong> — <code>p_hat = mkt_yes_mid</code> at T-24h

@@ -17,6 +17,37 @@ runs exactly two deliberately naive models (see below); real models arrive from 
    embedded in the row. It is never joined in afterwards — see invariant 2.
 3. The row is hash-chained to the previous row and appended. It is never edited again.
 
+## How the point-in-time claim is enforced
+
+Step 1 above is a claim about evidence, and a claim about evidence is worth what its test is
+worth. `feature_cutoff_ts_utc` is enforced in two independent places, and tested in three.
+
+**In the code.** The forecast runner filters twice: once when selecting the newest snapshot per
+market, and again inside `build_feature_vector`, which is the single point where bronze rows are
+admitted to a forecast. The filter is `capture_ts_utc <= feature_cutoff_ts_utc` and nothing
+else — no venue timestamp, no tolerance window. Any tolerance is a leak, and a leak is
+indistinguishable from a model that appears to work.
+
+**In the tests** (`tests/test_point_in_time.py`), three checks at different altitudes:
+
+| Check | What it would catch |
+|---|---|
+| `test_feature_builder_excludes_data_after_cutoff` | The filter itself failing, in isolation |
+| `test_forecast_written_end_to_end_respects_cutoff` | A persisted row whose recorded source (`orderbook_ref`) postdates its own cutoff — a forecast on a market it was entitled to forecast, built on evidence it was not |
+| `test_leaked_snapshot_cannot_reach_a_written_row` | The firewall failing while market selection masks it |
+
+The third exists because of a real finding: the two code-level guards cover for each other, so a
+black-box run proves neither individually. An earlier version of the end-to-end test passed
+against a deliberately broken firewall. Each test above was verified by mutation — the firewall
+was replaced with a pass-through and each was confirmed to fail, then restored. A test that has
+never been seen to fail is not evidence.
+
+**What this does not cover.** Correct enforcement of a cutoff is not the same as the cutoff being
+set to the right value. The runner stamps one cutoff per run, at run start, which makes the batch
+checkable against a single timestamp — but nothing here detects a cutoff that is honestly
+enforced and wrongly chosen. That is a review question, not a test question, and it is why the
+cutoff contract is human-owned under CLAUDE.md's automation boundary.
+
 ## The naive baselines (month 1)
 
 - **`market_mirror` v1.0.0** — `p_hat = mkt_yes_mid` at T-24h before close. Zero edge by
