@@ -27,6 +27,13 @@ SITE = REPO / "site"
 
 PAGES = [
     {
+        "src": LEARNING / "track-a" / "a0-what-a-probability-is.md",
+        "out": SITE / "learning-a0.html",
+        "title": "A0 — What a Probability Is",
+        "track": "Track A — Probability &amp; Inference",
+        "blurb": "What kind of thing is a probability, before it is a price?",
+    },
+    {
         "src": LEARNING / "track-a" / "a1-probability-foundations.md",
         "out": SITE / "learning-a1.html",
         "title": "A1 — Probability Foundations",
@@ -287,6 +294,15 @@ def build_page(spec: dict) -> str:
     body = re.sub(r"<p>\s*(<details>)", r"\1", body)
     body = re.sub(r"(</details>)\s*</p>", r"\1", body)
     body = re.sub(r"<p>\s*</p>", "", body)
+
+    # Cross-links between notes are written as `foo.md` so they resolve in the repo and on
+    # GitHub. On the site those files do not exist — rewrite them to the pages they build
+    # into. An unmapped .md link is a broken link, so fail rather than publish a 404.
+    for other in PAGES:
+        body = body.replace(f'href="{other["src"].name}"', f'href="{other["out"].name}"')
+    stray = re.findall(r'href="([^"]*\.md(?:#[^"]*)?)"', body)
+    if stray:
+        raise SystemExit(f"{spec['src'].name}: unmapped .md link(s): {sorted(set(stray))}")
 
     # Wide tables scroll inside their own container, never the page body.
     body = body.replace("<table>", '<div class="table-wrap"><table>').replace(
