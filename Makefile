@@ -1,4 +1,4 @@
-.PHONY: setup test lint dag-check site site-check
+.PHONY: setup test lint dag-check score site site-check
 
 setup:
 	uv sync
@@ -11,6 +11,10 @@ lint:
 
 dag-check:
 	uv run python -c "import ast, pathlib; [ast.parse(p.read_text()) for p in pathlib.Path('dags').glob('*.py')]"
+
+# Score the log against the market baseline. Recomputable; writes nothing back.
+score:
+	uv run python3 -m edgeledger.scoring.score --data-dir data
 
 # Regenerate the learning pages from docs/learning/*.md (the source of truth).
 site:

@@ -274,23 +274,43 @@ async def ingest_kalshi_trades(data_dir: Path, *, run_id: str, max_pages: int = 
 # --- resolutions ------------------------------------------------------------------------
 
 
-async def ingest_polymarket_resolutions(data_dir: Path, *, run_id: str, pages: int = 2) -> int:
-    """Poll closed Polymarket markets and record settled outcomes.
+async def ingest_polymarket_resolutions_for_forecast_markets(
+    data_dir: Path, *, run_id: str, batch_size: int = 20
+) -> int:
+    """Poll settled outcomes for the markets we have actually forecast.
 
-    `resolved_outcome` returns None when the outcome cannot be determined — closed but not
-    yet resolved by UMA, or no price information at all. Those are skipped rather than
-    guessed: a fabricated outcome in the log is worse than a missing one.
+    The obvious approach — scanning the `closed=true` feed — does not work: Gamma returns
+    it oldest-first with plain offset pagination, so its first pages are 2020-2021 markets
+    and a bounded scan never reaches anything this project forecast. Resolutions would
+    accumulate forever and score nothing. Verified 2026-08-20.
+
+    This closes the loop the other way round: take the market ids out of the forecast log
+    and ask Gamma about exactly those, via the `condition_ids` filter (repeated for a
+    batch). Markets that have not settled yet return no outcome and are skipped, so this
+    is safe to run on every cycle and simply starts producing rows as markets resolve.
+
+    Note the parameter name: `condition_ids` filters, while `conditionIds` and
+    `condition_id` are silently *ignored* by Gamma and return an unrelated page. A wrong
+    name here fails open, not loud, which is exactly how this stayed invisible.
     """
+    market_ids = forecast_market_ids(data_dir, venue="polymarket")
+    if not market_ids:
+        return 0
+
     rows: list[Resolution] = []
+    seen: set[str] = set()
 
     async with PolymarketClient() as client:
-        async for page in client.iter_markets(closed=True, limit=100, max_pages=pages):
+        for start in range(0, len(market_ids), batch_size):
+            batch = market_ids[start : start + batch_size]
+            page = await client.list_markets(condition_ids=batch, limit=len(batch))
             for raw in page.payload if isinstance(page.payload, list) else []:
                 parsed = parse_gamma_market(raw)
-                outcome = resolved_outcome(parsed)
                 condition_id = parsed.get("conditionId")
-                if not outcome or not condition_id:
+                outcome = resolved_outcome(parsed)
+                if not outcome or not condition_id or condition_id in seen:
                     continue
+                seen.add(str(condition_id))
                 resolution_ts = (
                     _epoch_to_utc(parsed.get("closedTime"))
                     or _parse_iso(parsed.get("endDate"))
@@ -308,8 +328,37 @@ async def ingest_polymarket_resolutions(data_dir: Path, *, run_id: str, pages: i
                 )
 
     write_rows(rows, data_dir, run_id=run_id)
-    logger.info("polymarket resolutions ingested", extra={"rows": len(rows)})
+    logger.info(
+        "polymarket resolutions ingested for forecast markets",
+        extra={"rows": len(rows), "markets_checked": len(market_ids)},
+    )
     return len(rows)
+
+
+def forecast_market_ids(data_dir: Path, *, venue: str) -> list[str]:
+    """Distinct market ids in the forecast log for one venue, newest forecast first.
+
+    Read straight off the log rather than from bronze: the log is the definitive record of
+    what was forecast, and it is the set that actually needs outcomes.
+    """
+    log_path = data_dir / "forecast_log.jsonl"
+    if not log_path.exists():
+        return []
+
+    ordered: dict[str, None] = {}
+    with log_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("venue") == venue and row.get("venue_market_id"):
+                ordered[str(row["venue_market_id"])] = None
+    # Reversed so the most recently forecast markets are polled first: they are the ones
+    # nearest to resolving, and a truncated run should cover those rather than the oldest.
+    return list(reversed(list(ordered)))
 
 
 async def ingest_kalshi_resolutions(data_dir: Path, *, run_id: str) -> int:

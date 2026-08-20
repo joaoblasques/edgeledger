@@ -7,6 +7,8 @@ enforced in one place rather than spread across YAML.
 Ordering is deliberate and load-bearing:
 
   1. **Ingest first.** Market state must be captured before anything forecasts on it.
+     Settled outcomes are polled in the same step: they feed the scoring view, never the
+     forecast, so they cannot influence what is predicted.
   2. **Forecast second**, from what was just captured — never from a later fetch, which
      would break invariant 2.
   3. **Archive last.** Bronze upload is best-effort and must never be able to prevent a
@@ -35,19 +37,29 @@ import httpx
 from edgeledger.archive import archive_bronze
 from edgeledger.forecast.log import head_hash, read_rows, verify_chain
 from edgeledger.forecast.runner import run_market_mirror
-from edgeledger.ingest import ingest_polymarket_books, ingest_polymarket_markets
+from edgeledger.ingest import (
+    ingest_polymarket_books,
+    ingest_polymarket_markets,
+    ingest_polymarket_resolutions_for_forecast_markets,
+)
 
 logger = logging.getLogger(__name__)
 
 
 async def _ingest(data_dir: Path, run_id: str, market_pages: int, book_limit: int) -> dict:
     """Fetch market state and depth. A venue failure degrades the run, never fails it."""
-    result = {"markets": 0, "books": 0, "ingest_error": None}
+    result = {"markets": 0, "books": 0, "resolutions": 0, "ingest_error": None}
     try:
         markets = await ingest_polymarket_markets(data_dir, run_id=run_id, max_pages=market_pages)
         result["markets"] = len(markets)
         result["books"] = await ingest_polymarket_books(
             markets, data_dir, run_id=run_id, limit=book_limit
+        )
+        # Resolutions are what make every logged forecast eventually scoreable. Looked up
+        # by the ids in the forecast log, NOT by scanning the closed feed — that feed is
+        # ordered oldest-first, so a bounded scan never reaches the markets we forecast.
+        result["resolutions"] = await ingest_polymarket_resolutions_for_forecast_markets(
+            data_dir, run_id=run_id
         )
     except (httpx.HTTPStatusError, httpx.RequestError, OSError) as exc:
         # No forecasts this cycle, but the schedule holds and the next run recovers.

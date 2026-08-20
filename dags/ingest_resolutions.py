@@ -9,6 +9,10 @@ never arrives means a forecast that never gets scored.
 A market whose outcome cannot be determined is skipped, not guessed. Polymarket reports
 some closed markets with no usable price information, and writing a fabricated outcome
 into the scoring path would be far worse than waiting for the next daily run.
+
+Polymarket outcomes are looked up by the ids in the forecast log, not by scanning the
+`closed=true` feed: that feed is ordered oldest-first, so a bounded scan only ever sees
+markets from years ago and never reaches anything this project forecast.
 """
 
 from __future__ import annotations
@@ -20,7 +24,10 @@ import pendulum
 from airflow.decorators import dag, task
 
 from edgeledger.config.settings import get_settings
-from edgeledger.ingest import ingest_kalshi_resolutions, ingest_polymarket_resolutions
+from edgeledger.ingest import (
+    ingest_kalshi_resolutions,
+    ingest_polymarket_resolutions_for_forecast_markets,
+)
 
 
 @dag(
@@ -40,7 +47,11 @@ def ingest_resolutions():
 
     @task
     def poll_polymarket_settled(**context) -> int:
-        return asyncio.run(ingest_polymarket_resolutions(data_dir, run_id=context["run_id"]))
+        return asyncio.run(
+            ingest_polymarket_resolutions_for_forecast_markets(
+                data_dir, run_id=context["run_id"]
+            )
+        )
 
     # Independent: one venue failing must not block the other's resolutions.
     poll_kalshi_settled()

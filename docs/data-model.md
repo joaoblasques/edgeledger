@@ -79,7 +79,12 @@ Partitioned by `forecast_date`.
 ## Scoring view — `forecast_scored`
 
 Recomputable, joins `forecast_log` against `resolutions` and `closing_prices` at query time.
-DDL: `src/edgeledger/scoring/views.sql`. See `docs/methodology.md` for what each metric means.
+DDL: `src/edgeledger/scoring/views.sql`. The inputs are built by
+`src/edgeledger/scoring/score.py` (`uv run python3 -m edgeledger.scoring.score`), which loads
+the log and bronze into DuckDB in memory and writes nothing back. `closing_prices` is derived —
+the last snapshot mid at or before resolution, never a post-settlement price — and carries
+`close_lag_seconds` so staleness is measurable. See `docs/methodology.md` for what each metric
+means and how the inputs are built.
 
 ## Hash chain
 

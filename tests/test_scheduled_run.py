@@ -266,3 +266,31 @@ def test_cycle_appends_across_runs(tmp_path, monkeypatch):
     assert second["log_rows"] == len(rows)
     assert [r.seq for r in rows] == list(range(len(rows))), "gapless across scheduled runs"
     assert {r.run_id for r in rows} == {"run-1", "run-2"}
+
+
+def test_cycle_ingests_resolutions(tmp_path, monkeypatch):
+    """Regression: resolutions were implemented but never called by the scheduled cycle,
+    so every forecast was permanently unscoreable. Stubs the venue calls, not `_ingest`."""
+    called: dict[str, str] = {}
+
+    async def fake_markets(data_dir, *, run_id, max_pages):
+        return []
+
+    async def fake_books(markets, data_dir, *, run_id, limit):
+        return 0
+
+    async def fake_resolutions(data_dir, *, run_id):
+        called["run_id"] = run_id
+        return 7
+
+    monkeypatch.setattr("edgeledger.scheduled_run.ingest_polymarket_markets", fake_markets)
+    monkeypatch.setattr("edgeledger.scheduled_run.ingest_polymarket_books", fake_books)
+    monkeypatch.setattr(
+        "edgeledger.scheduled_run.ingest_polymarket_resolutions_for_forecast_markets",
+        fake_resolutions,
+    )
+
+    summary = run_cycle(tmp_path, run_id="res-run", archive=False)
+
+    assert called["run_id"] == "res-run", "resolutions must be polled every cycle"
+    assert summary["resolutions"] == 7

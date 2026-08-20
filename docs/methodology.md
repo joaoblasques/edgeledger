@@ -93,6 +93,31 @@ Metrics, always reported as a pair (model vs. market baseline):
 - **Closing-line value (CLV)** — the market's own mid at forecast time minus its mid at close.
   This is the metric a desk trusts most, because it isolates timing skill from luck.
 
+### Where `resolutions` and `closing_prices` come from
+
+Both are built by `src/edgeledger/scoring/score.py`, which loads the log and bronze into DuckDB
+and then applies the view. Neither is written back to disk: scoring is recomputable from the
+log and bronze at any time, and must never mutate either.
+
+**Resolutions** are looked up *by the market ids in the forecast log*, not by scanning
+Polymarket's `closed=true` feed. That feed is returned oldest-first under plain offset
+pagination, so a bounded scan only ever sees markets from 2020–2021 and never reaches anything
+this project forecast — outcomes would accumulate forever and score nothing. Verified
+2026-08-20. The Gamma filter is `condition_ids`; `conditionIds` and `condition_id` are silently
+ignored and return an unrelated page, so a wrong parameter name fails open rather than loudly.
+
+**Closing prices are derived, not fetched** — neither venue publishes a "closing price". The
+closing mid is *the last market snapshot captured at or before the market's resolution
+timestamp*, computed on the same bid/ask basis as the forecast-time mid (if the two used
+different bases, their difference would not be CLV). Two consequences are reported rather than
+hidden:
+
+- Snapshots captured *after* resolution are excluded. A settled market prints 0 or 1, and
+  admitting those would manufacture spectacular fake CLV — the most flattering possible bug.
+- We only know what we captured. A market last snapshotted well before it settled has a stale
+  closing price, so `close_lag_seconds` is stored alongside every row and a staleness threshold
+  is logged. CLV aggregates should exclude implausibly stale rows, and say that they did.
+
 No single-number "accuracy" is ever reported on its own — it's meaningless without the market
 baseline alongside it.
 
