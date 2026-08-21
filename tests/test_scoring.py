@@ -243,3 +243,93 @@ def test_targeted_ingest_polls_log_ids_and_skips_open_markets(tmp_path, monkeypa
     con = build_connection(tmp_path)
     outcome = con.execute("SELECT resolved_outcome FROM resolutions").fetchall()
     assert outcome == [("yes",)]
+
+
+# --- in-clock vs long-dated split -------------------------------------------------------
+
+
+def _snapshot_with_end(market: str, end: str | None, *, at: datetime) -> VenueMarketSnapshot:
+    payload = {"bestBid": 0.55, "bestAsk": 0.65, "question": f"Q {market}?"}
+    if end is not None:
+        payload["endDate"] = end
+    return VenueMarketSnapshot(
+        capture_ts_utc=at,
+        run_id="ingest-1",
+        venue="polymarket",
+        venue_market_id=market,
+        payload=json.dumps(payload),
+        ingest_date=at.date(),
+    )
+
+
+def test_horizon_seconds_is_populated_from_the_forecast_time_payload(tmp_path):
+    """Derived at write time from the same snapshot (invariant 2), never looked up later."""
+    from datetime import timedelta
+
+    from edgeledger.bronze.writers import read_rows as read_bronze
+    from edgeledger.forecast.log import read_rows
+    from edgeledger.forecast.runner import run_market_mirror
+
+    now = datetime.now(UTC)
+    write_rows(
+        [
+            _snapshot_with_end("soon", (now + timedelta(days=30)).isoformat(), at=now),
+            _snapshot_with_end("late", (now + timedelta(days=900)).isoformat(), at=now),
+            _snapshot_with_end("undated", None, at=now),
+            # An end date already in the past is not a horizon.
+            _snapshot_with_end("expired", (now - timedelta(days=5)).isoformat(), at=now),
+        ],
+        tmp_path,
+        run_id="ingest-1",
+    )
+    assert len(read_bronze(VenueMarketSnapshot, tmp_path)) == 4
+
+    run_market_mirror(tmp_path, run_id="fc-1")
+    horizons = {r.venue_market_id: r.horizon_seconds for r in read_rows(tmp_path)}
+
+    assert 29 * 86400 < horizons["soon"] <= 30 * 86400
+    assert horizons["late"] > 800 * 86400
+    assert horizons["undated"] is None, "no endDate means no horizon, not a guess"
+    assert horizons["expired"] is None, "a past end date must not become a negative horizon"
+
+
+def test_summarise_splits_long_dated_out_of_the_brier_universe(tmp_path):
+    """2028 contracts can never resolve inside the clock; a shared denominator lies."""
+    from datetime import timedelta
+
+    from edgeledger.forecast.runner import run_market_mirror
+
+    now = datetime.now(UTC)
+    write_rows(
+        [
+            _snapshot_with_end("in_clock", (now + timedelta(days=60)).isoformat(), at=now),
+            _snapshot_with_end("in_clock_2", (now + timedelta(days=200)).isoformat(), at=now),
+            # Past 2027-08-03.
+            _snapshot_with_end("pres_2028", "2028-11-07T00:00:00Z", at=now),
+        ],
+        tmp_path,
+        run_id="ingest-1",
+    )
+    run_market_mirror(tmp_path, run_id="fc-1")
+
+    s = summarise(build_connection(tmp_path))
+
+    assert s["forecasts"] == 3
+    assert s["in_clock"]["forecasts"] == 2
+    assert s["long_dated"]["forecasts"] == 1
+    assert s["long_dated"]["brier_note"]
+
+
+def test_legacy_rows_without_a_horizon_stay_in_the_clock_universe(tmp_path):
+    """`horizon_seconds` is NULL for everything logged before it was populated.
+
+    Those rows must not silently vanish from the in-clock universe — the whole existing
+    history would drop out of the only metric that counts.
+    """
+    _forecast(tmp_path, "legacy", p_hat="0.70", mid="0.60", seq=0)
+
+    s = summarise(build_connection(tmp_path))
+
+    assert s["forecasts"] == 1
+    assert s["in_clock"]["forecasts"] == 1
+    assert s["long_dated"]["forecasts"] == 0

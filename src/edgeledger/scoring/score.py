@@ -193,14 +193,12 @@ def _create_or_empty(
         con.execute(f"CREATE TABLE {table} ({empty_ddl})")
 
 
-def summarise(con: duckdb.DuckDBPyConnection) -> dict:
-    """Headline numbers, always model-against-market (invariant 6).
+# The twelve-month clock: first logged forecast 2026-08-03, so scoring ends 2027-08-03.
+# A market expected to resolve after this cannot contribute a Brier score to this project
+# no matter what happens, and saying so in advance is the point (docs/methodology.md).
+CLOCK_END_UTC = "2027-08-03T00:00:00+00:00"
 
-    Every average is over rows where the metric is non-NULL, so unresolved and void
-    markets drop out rather than being counted as zeros.
-    """
-    row = con.execute("""
-        SELECT
+_METRICS = """
           count(*)                                   AS forecasts,
           count(y)                                   AS scored,
           avg(brier)                                 AS brier,
@@ -210,13 +208,59 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict:
           avg(log_loss_market)                       AS log_loss_market,
           count(clv_signed)                          AS clv_observations,
           avg(clv_signed)                            AS clv_signed
-        FROM forecast_scored
-    """).fetchone()
-    keys = (
-        "forecasts", "scored", "brier", "brier_market", "brier_delta",
-        "log_loss", "log_loss_market", "clv_observations", "clv_signed",
-    )
-    return dict(zip(keys, row, strict=True))
+"""
+
+_METRIC_KEYS = (
+    "forecasts", "scored", "brier", "brier_market", "brier_delta",
+    "log_loss", "log_loss_market", "clv_observations", "clv_signed",
+)
+
+# Rows whose stated end date falls after the clock. `horizon_seconds` is only populated on
+# forecasts written after 2026-08-21, so this is NULL for the earlier history — hence
+# `IS NOT TRUE` below rather than `= FALSE`, which would silently drop every legacy row out
+# of the in-clock universe instead of including it.
+_LONG_DATED = (
+    f"horizon_seconds IS NOT NULL "
+    f"AND forecast_ts_utc + INTERVAL (horizon_seconds) SECOND > TIMESTAMPTZ '{CLOCK_END_UTC}'"
+)
+
+
+def summarise(con: duckdb.DuckDBPyConnection) -> dict:
+    """Headline numbers, always model-against-market (invariant 6).
+
+    Every average is over rows where the metric is non-NULL, so unresolved and void
+    markets drop out rather than being counted as zeros.
+
+    Reported as two universes, because mixing them overstates what this project can
+    actually demonstrate:
+
+      * **in_clock** — markets expected to resolve before the twelve months are up. This
+        is the only universe where a Brier score is meaningful, because it is the only one
+        that can produce resolutions in time.
+      * **long_dated** — markets whose stated end date falls after the clock (2028
+        presidential contracts, mostly). These can never be scored here. They are kept and
+        reported for CLV only, which needs no resolution: it is measurable the moment the
+        price moves.
+
+    A headline Brier averaged over both would be computed on the in-clock rows anyway (the
+    others never resolve) while implying a sample that includes them. Splitting it makes
+    the denominator honest. See docs/horizon-analysis-2026-08-21.md.
+    """
+    overall = con.execute(f"SELECT {_METRICS} FROM forecast_scored").fetchone()
+    long_dated = con.execute(
+        f"SELECT {_METRICS} FROM forecast_scored WHERE {_LONG_DATED}"
+    ).fetchone()
+    in_clock = con.execute(
+        f"SELECT {_METRICS} FROM forecast_scored WHERE NOT ({_LONG_DATED})"
+    ).fetchone()
+
+    summary = dict(zip(_METRIC_KEYS, overall, strict=True))
+    summary["in_clock"] = dict(zip(_METRIC_KEYS, in_clock, strict=True))
+    summary["long_dated"] = dict(zip(_METRIC_KEYS, long_dated, strict=True))
+    # Brier on the long-dated universe is structurally meaningless here, so it is not
+    # reported as though it were pending — it is stated as unavailable by construction.
+    summary["long_dated"]["brier_note"] = "not scoreable within the clock; CLV only"
+    return summary
 
 
 def main(argv: list[str] | None = None) -> int:

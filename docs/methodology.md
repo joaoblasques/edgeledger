@@ -93,6 +93,49 @@ Metrics, always reported as a pair (model vs. market baseline):
 - **Closing-line value (CLV)** — the market's own mid at forecast time minus its mid at close.
   This is the metric a desk trusts most, because it isolates timing skill from luck.
 
+### Two universes: what can be scored, and what cannot
+
+**Committed 2026-08-21, before any forecast had resolved.** Recorded here in advance
+precisely because it constrains the headline number — stating it after the fact would be
+choosing a denominator once the results are known.
+
+A profile of every market in the log (`docs/horizon-analysis-2026-08-21.md`) found that
+**36% of tracked contracts are 2028 presidential markets that cannot resolve before this
+project's twelve months are up.** No model and no amount of waiting changes that. Reporting
+one Brier score across the whole book would imply a sample that includes them, while in
+practice being computed only on the rows that resolved.
+
+So results are reported as two universes, split on whether a market's stated end date falls
+before the clock ends (2027-08-03):
+
+- **in_clock** — expected to resolve in time. **The only universe where Brier, log loss and
+  calibration are reported**, because it is the only one that can produce outcomes.
+- **long_dated** — expected to resolve after the clock. **Reported for CLV only.** CLV needs
+  no resolution: it is measurable as soon as the price moves. Brier is not "pending" for
+  these markets, it is unavailable by construction, and is labelled as such.
+
+The split uses `horizon_seconds`, derived at forecast time from the same snapshot the
+forecast is built from (invariant 2). It is a *stated* end date, not a guarantee — markets
+settle early and late — so scoring still keys off observed resolutions. The horizon only
+decides which universe a forecast is reported in. Forecasts logged before 2026-08-21 carry
+no horizon and are counted in-clock, which is the honest default for a book that was then
+almost entirely 2026 races.
+
+### Expected sample size, stated in advance
+
+The same analysis found the in-clock universe is **much smaller than its contract count**:
+239 midterm contracts map to 161 distinct contests, and 61 of those hold both a Democrat and
+a Republican contract — anticorrelated pairs worth one independent outcome each. Expected
+effective sample: **~178 independent resolutions, roughly 59% of them landing on a single day
+(2026-11-03).**
+
+That is thin, and it is being said now rather than discovered later. At that sample size the
+confidence interval on `brier_delta` is wide relative to any edge a baseline model would
+plausibly show, and one correlated national surprise moves much of the book at once. **A null
+result is the expected outcome, and will be reported as one.** If a positive result does
+appear, the same interval applies to it, and it will be reported with that interval rather
+than as a headline point estimate.
+
 ### Where `resolutions` and `closing_prices` come from
 
 Both are built by `src/edgeledger/scoring/score.py`, which loads the log and bronze into DuckDB

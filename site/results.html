@@ -39,6 +39,27 @@
 settles. Most tracked contracts resolve months out, so there is a deliberate lag between "we are
 logging predictions" and "we can tell you whether they were any good".</p>
 
+<h2>How big the sample will actually be</h2>
+
+<p>Profiling every market in the log turned up something worth stating now rather than at the
+end: <strong>about 36% of the tracked book is 2028 presidential contracts, which cannot resolve
+before this project's twelve months are up.</strong> They will never have a Brier score here. So
+results are split into two universes — markets expected to resolve inside the clock, which are
+the only ones scored for accuracy, and long-dated markets, which are reported for closing-line
+value only. CLV needs no outcome: it is measurable the moment the price moves.</p>
+
+<p>The scoreable half is also smaller than its contract count suggests. 239 midterm contracts
+map to 161 distinct contests, and 61 of those hold both a Democrat and a Republican contract —
+mirror images of one another, worth a single independent outcome each. The realistic expectation
+is <strong>roughly 178 independent resolutions, most of them landing on one day: 2026-11-03.</strong></p>
+
+<p>That is a thin sample, and at that size the confidence interval on any edge is wide. <strong>A
+null result is the expected outcome here, and it will be reported as one.</strong> This is
+written down before the first market has settled, because a sample size disclosed after the
+numbers arrive is worth nothing. The full working is in
+<a href="https://github.com/joaoblasques/edgeledger/blob/master/docs/horizon-analysis-2026-08-21.md">the
+horizon analysis</a>.</p>
+
 <p>The scoreboard below is published empty on purpose. The metrics were chosen and committed to
 in advance — before any of them could be computed — rather than selected afterwards from
 whichever ones happened to flatter the result. That ordering is the entire point, and because

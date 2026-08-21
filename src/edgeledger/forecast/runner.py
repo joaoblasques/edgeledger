@@ -92,6 +92,33 @@ def _mid_from_payload(payload: dict[str, Any]) -> tuple[Decimal | None, Decimal 
     return bid, ask, None
 
 
+def _horizon_seconds(payload: dict[str, Any], forecast_ts: datetime) -> int | None:
+    """Seconds from now to the market's stated end, or None if it has none.
+
+    Taken from the same snapshot payload the forecast is built from, so it is market state
+    at forecast time (invariant 2) — never a later lookup. `endDate` is the venue's own
+    field and is treated as a stated intention, not a guarantee: a market can settle early
+    or late, which is why scoring still keys off observed resolutions and this is only used
+    to bucket a forecast by its expected horizon.
+
+    Returns None rather than a negative number for an already-passed end date: "expected to
+    resolve in the past" is not a horizon, and a negative value would silently corrupt any
+    average built on this field.
+    """
+    end = payload.get("endDate")
+    if not isinstance(end, str) or not end:
+        return None
+    text = end[:-1] + "+00:00" if end.endswith("Z") else end
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    seconds = int((parsed - forecast_ts).total_seconds())
+    return seconds if seconds > 0 else None
+
+
 def run_market_mirror(
     data_dir: Path,
     *,
@@ -155,10 +182,13 @@ def run_market_mirror(
             continue
 
         p_hat = market_mirror(mid)
+        # Bound once: the horizon must be measured from the same instant the row records,
+        # not from a second clock read a few microseconds later.
+        forecast_ts = datetime.now(UTC)
         row = ForecastLogRow(
             forecast_id=uuid4(),
             seq=next_seq(data_dir),
-            forecast_ts_utc=datetime.now(UTC),
+            forecast_ts_utc=forecast_ts,
             model_name="market_mirror",
             model_version=MARKET_MIRROR_VERSION,
             code_git_sha=git_sha,
@@ -178,6 +208,7 @@ def run_market_mirror(
             feature_vector=features.to_json(),
             feature_set_version=FEATURE_SET_VERSION,
             edge=p_hat - mid,
+            horizon_seconds=_horizon_seconds(payload, forecast_ts),
             row_hash="pending",  # filled in by append_forecast
             prev_row_hash="pending",
         )
