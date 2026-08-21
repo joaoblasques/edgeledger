@@ -294,3 +294,65 @@ def test_cycle_ingests_resolutions(tmp_path, monkeypatch):
 
     assert called["run_id"] == "res-run", "resolutions must be polled every cycle"
     assert summary["resolutions"] == 7
+
+
+# --- wiring check ----------------------------------------------------------------------
+
+
+def test_zero_resolutions_is_not_a_failure():
+    """The alert must stay quiet while markets are simply still open.
+
+    Every tracked market being unresolved is the expected state for months. An alert that
+    fires on it gets filtered, and then the real break goes unnoticed.
+    """
+    from edgeledger.scheduled_run import check_wiring
+
+    check_wiring({"markets": 200, "books": 6, "resolutions": 0, "forecasts": 200})
+
+
+def test_missing_resolutions_key_fails_the_run():
+    """The actual regression: the step was never called, and nothing reported it."""
+    from edgeledger.scheduled_run import WiringError, check_wiring
+
+    with pytest.raises(WiringError, match="resolutions"):
+        check_wiring({"markets": 200, "books": 6, "forecasts": 200})
+
+
+def test_venue_outage_is_not_reported_as_a_wiring_bug():
+    """A venue being down is a true observation, not a broken pipeline."""
+    from edgeledger.scheduled_run import check_wiring
+
+    check_wiring({"markets": 0, "books": 0, "ingest_error": "RequestError: boom"})
+
+
+def test_main_exits_nonzero_when_a_step_is_unwired(tmp_path, monkeypatch):
+    """End-to-end: a missing step must make the CI job fail, which is what sends the mail."""
+    from edgeledger.scheduled_run import main
+
+    def unwired_cycle(data_dir, **kwargs):
+        return {  # no "resolutions" key — the pre-fix shape
+            "markets": 2, "books": 0, "forecasts": 2,
+            "log_rows": 2, "head_hash": "x" * 64,
+            "finished_utc": "2026-08-21T00:00:00+00:00", "ingest_error": None,
+        }
+
+    monkeypatch.setattr("edgeledger.scheduled_run.run_cycle", unwired_cycle)
+    out = tmp_path / "summary.json"
+
+    assert main(["--data-dir", str(tmp_path), "--summary-out", str(out), "--no-archive"]) == 2
+    assert out.exists(), "the summary must survive the failure it diagnoses"
+
+
+def test_main_exits_zero_on_a_healthy_cycle(tmp_path, monkeypatch):
+    from edgeledger.scheduled_run import main
+
+    def healthy_cycle(data_dir, **kwargs):
+        return {
+            "markets": 2, "books": 0, "resolutions": 0, "forecasts": 2,
+            "log_rows": 2, "head_hash": "x" * 64,
+            "finished_utc": "2026-08-21T00:00:00+00:00", "ingest_error": None,
+        }
+
+    monkeypatch.setattr("edgeledger.scheduled_run.run_cycle", healthy_cycle)
+
+    assert main(["--data-dir", str(tmp_path), "--no-archive"]) == 0

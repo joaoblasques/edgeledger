@@ -62,6 +62,17 @@ jobs:
             --summary-out run-summary.json \
             ${{ inputs.no_archive && '--no-archive' || '' }}
 
+      # Kept even when the cycle fails: the summary is the diagnostic, so it has to
+      # outlive the failure it describes.
+      - name: Upload the run summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-summary-${{ github.run_id }}
+          path: run-summary.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Publish the chain head
         run: |
           uv run python3 -c "
@@ -71,6 +82,11 @@ jobs:
               'head_hash': s['head_hash'],
               'log_rows': s['log_rows'],
               'as_of_utc': s['finished_utc'],
+              # Committed so 'are resolutions being polled?' is answerable from the repo
+              # itself, with no email and no log-diving. A count of 0 is the honest
+              # answer while every tracked market is still open; the key vanishing is
+              # what would signal a break, and that fails the run instead.
+              'resolutions_polled': s.get('resolutions'),
           }, indent=2) + '\n')
           "
 

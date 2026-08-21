@@ -16,10 +16,13 @@ Ordering is deliberate and load-bearing:
   4. **Verify the chain** before reporting success, so a corrupt log fails the run loudly
      instead of being silently committed.
 
-Exit code is non-zero only when the forecast log itself is broken. A venue outage or a
-failed archive is reported but does not fail the run: the schedule must keep its cadence,
-and a run that writes zero forecasts because Polymarket was down is a true observation,
-not an error.
+Exit codes: 1 when the forecast log itself is broken, 2 when a pipeline step silently
+stopped running (see `check_wiring`). A venue outage or a failed archive is reported but
+does not fail the run: the schedule must keep its cadence, and a run that writes zero
+forecasts because Polymarket was down is a true observation, not an error.
+
+A non-zero exit is how this reports to a human — GitHub emails the owner on a failed run,
+so the alerting path is the CI platform's, with nothing extra to configure or to break.
 """
 
 from __future__ import annotations
@@ -104,6 +107,36 @@ def run_cycle(
     return summary
 
 
+class WiringError(RuntimeError):
+    """A step that should have run did not. Distinct from a venue being down."""
+
+
+def check_wiring(summary: dict) -> None:
+    """Fail the run when a pipeline step silently stopped being called.
+
+    The bug this exists to catch: resolutions were implemented but never invoked by the
+    scheduled cycle, so every forecast was permanently unscoreable — and nothing anywhere
+    reported a problem, because a cycle that writes forecasts and verifies its chain looks
+    completely healthy. Silence was the failure mode.
+
+    What is checked is that the *key is present*, never that it is non-zero. Zero
+    resolutions is the honest and expected answer while every tracked market is still
+    open; treating it as an error would train the alert to be ignored, which is how a real
+    break gets missed. A missing key means the code path did not run at all.
+
+    Skipped when ingestion failed: a venue outage is a true observation and must not be
+    reported as a wiring bug (see the module docstring).
+    """
+    if summary.get("ingest_error"):
+        return
+    missing = [k for k in ("markets", "books", "resolutions", "forecasts") if k not in summary]
+    if missing:
+        raise WiringError(
+            f"cycle summary is missing {missing} — a pipeline step did not run. "
+            "Every logged forecast stays unscoreable until this is fixed."
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one scheduled EdgeLedger cycle.")
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -132,8 +165,16 @@ def main(argv: list[str] | None = None) -> int:
 
     text = json.dumps(summary, indent=2, sort_keys=True)
     print(text)
+    # Written before the wiring check so a failing run still leaves its summary behind to
+    # inspect — the diagnostic must survive the failure it is diagnosing.
     if args.summary_out:
         args.summary_out.write_text(text + "\n", encoding="utf-8")
+
+    try:
+        check_wiring(summary)
+    except WiringError as exc:
+        logger.error("PIPELINE WIRING CHECK FAILED: %s", exc)
+        return 2
 
     if summary.get("ingest_error"):
         logger.warning("cycle completed with a degraded ingest: %s", summary["ingest_error"])
