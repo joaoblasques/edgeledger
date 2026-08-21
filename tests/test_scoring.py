@@ -333,3 +333,75 @@ def test_legacy_rows_without_a_horizon_stay_in_the_clock_universe(tmp_path):
     assert s["forecasts"] == 1
     assert s["in_clock"]["forecasts"] == 1
     assert s["long_dated"]["forecasts"] == 0
+
+
+def test_settled_markets_drop_out_of_the_poll_list(tmp_path, monkeypatch):
+    """A resolution is final. Re-polling it forever only grows the call count.
+
+    Without this the poll list is every market ever forecast, for the life of the project.
+    """
+    import asyncio
+
+    from edgeledger.clients.base import Captured
+    from edgeledger.ingest import ingest_polymarket_resolutions_for_forecast_markets
+
+    _forecast(tmp_path, "settled", p_hat="0.70", mid="0.60", seq=0)
+    _forecast(tmp_path, "pending", p_hat="0.40", mid="0.40", seq=1)
+    # "settled" already has a recorded outcome from an earlier cycle.
+    write_rows(
+        [_resolution("settled", "yes", at=BASE + timedelta(days=1))], tmp_path, run_id="res-0"
+    )
+
+    asked: list[list[str]] = []
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def list_markets(self, *, condition_ids, limit):
+            asked.append(list(condition_ids))
+            return Captured(capture_ts_utc=BASE, payload=[])
+
+    monkeypatch.setattr("edgeledger.ingest.PolymarketClient", FakeClient)
+
+    asyncio.run(ingest_polymarket_resolutions_for_forecast_markets(tmp_path, run_id="res-1"))
+
+    assert asked == [["pending"]], "the already-settled market must not be re-polled"
+
+
+def test_void_settlements_are_also_final(tmp_path, monkeypatch):
+    """'invalid' is an outcome, not a pending state — re-polling it changes nothing."""
+
+    from edgeledger.ingest import resolved_market_ids
+
+    _forecast(tmp_path, "void", p_hat="0.50", mid="0.50", seq=0)
+    write_rows(
+        [_resolution("void", "invalid", at=BASE + timedelta(days=1))], tmp_path, run_id="res-0"
+    )
+
+    assert resolved_market_ids(tmp_path, venue="polymarket") == {"void"}
+
+
+def test_no_venue_call_when_everything_is_settled(tmp_path, monkeypatch):
+    """Zero remaining markets must short-circuit, not send an empty batch."""
+    import asyncio
+
+    from edgeledger.ingest import ingest_polymarket_resolutions_for_forecast_markets
+
+    _forecast(tmp_path, "settled", p_hat="0.70", mid="0.60", seq=0)
+    write_rows(
+        [_resolution("settled", "yes", at=BASE + timedelta(days=1))], tmp_path, run_id="res-0"
+    )
+
+    def explode(*a, **k):
+        raise AssertionError("must not open a venue client when there is nothing to poll")
+
+    monkeypatch.setattr("edgeledger.ingest.PolymarketClient", explode)
+
+    assert (
+        asyncio.run(ingest_polymarket_resolutions_for_forecast_markets(tmp_path, run_id="r"))
+        == 0
+    )

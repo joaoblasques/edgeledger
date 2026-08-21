@@ -26,6 +26,7 @@ from edgeledger.bronze.schemas import (
     VenueOrderbookSnapshot,
     VenueTrade,
 )
+from edgeledger.bronze.writers import read_rows as read_bronze_rows
 from edgeledger.bronze.writers import write_rows
 from edgeledger.clients.kalshi import KalshiClient
 from edgeledger.clients.polymarket import (
@@ -292,9 +293,25 @@ async def ingest_polymarket_resolutions_for_forecast_markets(
     Note the parameter name: `condition_ids` filters, while `conditionIds` and
     `condition_id` are silently *ignored* by Gamma and return an unrelated page. A wrong
     name here fails open, not loud, which is exactly how this stayed invisible.
+
+    Markets already recorded as settled are dropped from the poll list. A resolution is
+    final, so re-asking about it every six hours buys nothing and the call count would
+    otherwise only ever grow — every market this project has ever forecast, polled forever.
+    Bronze is the source of truth for what is already known, so a lost or archived-away
+    bronze directory simply means those markets get re-polled once and re-recorded, which
+    is harmless (the writer is idempotent per run).
     """
     market_ids = forecast_market_ids(data_dir, venue="polymarket")
     if not market_ids:
+        return 0
+
+    already_settled = resolved_market_ids(data_dir, venue="polymarket")
+    market_ids = [m for m in market_ids if m not in already_settled]
+    if not market_ids:
+        logger.info(
+            "every forecast market already has a recorded resolution",
+            extra={"settled": len(already_settled)},
+        )
         return 0
 
     rows: list[Resolution] = []
@@ -330,9 +347,26 @@ async def ingest_polymarket_resolutions_for_forecast_markets(
     write_rows(rows, data_dir, run_id=run_id)
     logger.info(
         "polymarket resolutions ingested for forecast markets",
-        extra={"rows": len(rows), "markets_checked": len(market_ids)},
+        extra={
+            "rows": len(rows),
+            "markets_checked": len(market_ids),
+            "already_settled_skipped": len(already_settled),
+        },
     )
     return len(rows)
+
+
+def resolved_market_ids(data_dir: Path, *, venue: str) -> set[str]:
+    """Market ids already recorded as settled in bronze.
+
+    Includes `invalid` — a void settlement is a final outcome, not a pending one, and
+    re-polling it would never produce anything different.
+    """
+    return {
+        r.venue_market_id
+        for r in read_bronze_rows(Resolution, data_dir)
+        if r.venue == venue
+    }
 
 
 def forecast_market_ids(data_dir: Path, *, venue: str) -> list[str]:
