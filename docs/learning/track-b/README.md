@@ -16,3 +16,5 @@
 will cheerfully hand you a beautiful backtest built on leakage. B6 is what stops that.
 
 Add a link in the "Notes" column as each concept gets its own file in this directory.
+
+**The `Months` column above is superseded.** Since 2026-09-12 there is one ordered sequence at 2 hrs/week across both tracks, not two parallel clocks — see [../ROADMAP.md](../ROADMAP.md). The A/B split is kept as a taxonomy for tagging notes.

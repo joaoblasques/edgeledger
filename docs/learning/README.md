@@ -20,9 +20,10 @@ and doubles as source content for the public site.
 Concept notes are added as they're learned, not pre-created — each track's `README.md` is the
 index and gets a link added per note.
 
-**Note:** the roadmap referenced here has never existed as a file. With the horizon now at two
-years and the cadence at 2 hrs/week (~200 hours total), writing that ordered spine is the next
-piece of work on this directory.
+**The ordered sequence lives in [ROADMAP.md](ROADMAP.md)** — one session per week, paced by
+*section* rather than by rung (A1 and B1 are ~5,000 words each, five to six sessions apiece).
+It schedules the first ~52 weeks and deliberately stops there: the back half is re-planned at
+week 50 against what the forecast log actually shows.
 
 **Reading list:** kept in the vault (`01_Projects/EdgeLedger/02-Learning/Reading List.md`) as a
 personal aggregation — it's just a list of books/papers, no reason to duplicate it here.
