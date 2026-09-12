@@ -1,6 +1,6 @@
 # Setting up the schedule
 
-What has to be done by hand to start the twelve-month clock. Everything else is already
+What has to be done by hand to start the research clock. Everything else is already
 committed and working. See [ADR-0003](adr/0003-scheduling-and-storage.md) for why it is
 built this way.
 

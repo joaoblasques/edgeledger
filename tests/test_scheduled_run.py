@@ -1,6 +1,6 @@
 """Tests for the scheduled cycle and the bronze archiver (Backblaze B2 / Cloudflare R2).
 
-The properties that matter here are about failure behaviour: an unattended twelve-month
+The properties that matter here are about failure behaviour: an unattended multi-year
 schedule must degrade in the right direction. A venue outage or a dead archive must not
 stop a forecast being written; a corrupt log must stop everything.
 """

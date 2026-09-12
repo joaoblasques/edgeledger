@@ -101,7 +101,7 @@ choosing a denominator once the results are known.
 
 A profile of every market in the log (`docs/horizon-analysis-2026-08-21.md`) found that
 **36% of tracked contracts are 2028 presidential markets that cannot resolve before this
-project's twelve months are up.** No model and no amount of waiting changes that. Reporting
+project's original twelve-month clock is up.** No model and no amount of waiting changes that. Reporting
 one Brier score across the whole book would imply a sample that includes them, while in
 practice being computed only on the rows that resolved.
 
@@ -136,6 +136,22 @@ result is the expected outcome, and will be reported as one.** If a positive res
 appear, the same interval applies to it, and it will be reported with that interval rather
 than as a headline point estimate.
 
+**This analysis is why the horizon was extended to two years on 2026-09-12** (see
+`horizon-change-2026-09-12.md`). The thinness above is structural, not a matter of patience:
+a one-year book is dominated by a single correlated election day, so waiting longer inside
+the same year adds rows without adding independent information. Two years spans the 2026
+midterms *and* the 2028 primary season, which adds resolutions from uncorrelated event
+clusters — the only thing that actually narrows the interval.
+
+**What the extension must not do is retroactively widen the denominator.** `CLOCK_END_UTC`
+(2027-08-03) currently splits `in_clock` from `long_dated`, and 36% of tracked contracts are
+2028 presidential markets sitting in `long_dated`. Moving that boundary after the fact would
+reclassify forecasts already logged, which is precisely the "choosing a denominator once the
+results are known" this section exists to forbid. **Unresolved: whether the extension adds a
+second, separately-reported clock while the original 2027-08-03 universe stays frozen as
+first stated.** Until that is decided, `CLOCK_END_UTC` is unchanged and every existing
+forecast keeps the classification it was logged under.
+
 ### Where `resolutions` and `closing_prices` come from
 
 Both are built by `src/edgeledger/scoring/score.py`, which loads the log and bronze into DuckDB
@@ -168,4 +184,5 @@ baseline alongside it.
 
 No real forecasting model, no sizing/Kelly logic, no paper execution exists yet. This document
 will grow a section per model version as they ship (month 3 onward: Elo/Bradley-Terry; month 5:
-logistic regression; month 7: Poisson/Dixon-Coles; etc. — see the 12-month roadmap in the vault).
+logistic regression; month 7: Poisson/Dixon-Coles; etc. — the roadmap is being rewritten for the
+two-year horizon; see `horizon-change-2026-09-12.md`).

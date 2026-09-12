@@ -6,13 +6,13 @@ Accepted — 2026-08-03
 
 ## Context
 
-The twelve-month clock needs a scheduler that runs unattended. A missed window is a
+The research clock needs a scheduler that runs unattended. A missed window is a
 permanently lost observation: an order book cannot be reconstructed three hours after the
 fact, so "catch up later" does not exist for this data.
 
 The obvious candidate was the operator's MacBook (via `launchd` or a local Airflow), which
 is free and already has the four DAGs working. It was rejected: a laptop travels, closes,
-and loses network, and a twelve-month public commitment that quietly stops in month three
+and loses network, and a multi-year public commitment that quietly stops in month three
 is worse than one that never started.
 
 Storage forced a second decision. Measured against the live venue, the pipeline produces:

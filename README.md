@@ -1,6 +1,6 @@
 # EdgeLedger
 
-**A twelve-month, running, public system for pricing prediction markets — and an immutable,
+**A two-year, running, public system for pricing prediction markets — and an immutable,
 timestamped record of every forecast it has ever made.**
 
 Most trading track records are unverifiable: no one outside the author can tell whether a
@@ -28,11 +28,17 @@ This is a hiring portfolio for a quantitative researcher / trading-systems role 
 event-contract desk. The claim it exists to prove:
 
 > I build the measurement and modelling layer that lets a desk know whether its edge is real —
-> and I have twelve months of timestamped, out-of-sample forecasts to prove the layer works.
+> and I have two years of timestamped, out-of-sample forecasts to prove the layer works.
 
-Twelve months of a deliberately naive baseline, progressively beaten (or not) by increasingly
+Two years of a deliberately naive baseline, progressively beaten (or not) by increasingly
 serious models, reported quarterly against the market's own price as the baseline. If the edge
 turns out to be zero after fees, that's a valid — and reported — result.
+
+The horizon is two years rather than one for a stated reason, not for comfort: a single year
+yields roughly 178 independent resolutions with ~59% of them landing on one day
+(2026-11-03), which is too thin and too correlated to separate an edge from noise. Two years
+spans the 2026 midterms *and* the 2028 primary season, so the sample accumulates across
+uncorrelated event clusters. See `docs/horizon-change-2026-09-12.md`.
 
 ## The immutability guarantee
 
@@ -57,7 +63,7 @@ schema.
 
 ## Status
 
-Month 1 of 12: ingestion + the forecast log itself. See `docs/methodology.md` and the ADRs in
+Month 2 of 24: ingestion + the forecast log itself. See `docs/methodology.md` and the ADRs in
 `docs/adr/` for the current state of the design. No forecasting model, sizing logic, or paper
 execution exists yet — those are later milestones, deliberately.
 

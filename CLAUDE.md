@@ -1,10 +1,10 @@
 # CLAUDE.md — EdgeLedger
 
-**Purpose:** EdgeLedger is a twelve-month research system for prediction markets, built as a
+**Purpose:** EdgeLedger is a two-year research system for prediction markets, built as a
 hiring portfolio for a quantitative researcher / trading-systems role on an event-contract desk.
 
 **The pitch:** *"I build the measurement and modelling layer that lets a desk know whether its
-edge is real — and I have twelve months of timestamped, out-of-sample forecasts to prove the
+edge is real — and I have two years of timestamped, out-of-sample forecasts to prove the
 layer works."*
 
 Pregame-only, systematic, hold-to-resolution. No live/in-game trading, ever. The system runs

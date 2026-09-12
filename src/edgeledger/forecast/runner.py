@@ -1,6 +1,6 @@
 """Runs the baseline models over tracked markets and appends to the forecast log.
 
-This is what starts the twelve-month clock. Everything it does is constrained by the
+This is what starts the research clock. Everything it does is constrained by the
 invariants, and three of them bite directly here:
 
   * **invariant 2** — market state is read from the bronze snapshot the forecast is built

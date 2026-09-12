@@ -1,4 +1,4 @@
-"""Airflow DAG: forecast_baseline — the DAG that starts the twelve-month clock.
+"""Airflow DAG: forecast_baseline — the DAG that starts the research clock.
 
 Schedule: every 6 hours.
 
