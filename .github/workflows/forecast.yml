@@ -29,7 +29,14 @@ concurrency:
 jobs:
   forecast:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Raised from 20 on 2026-09-12 after 13 of 30 runs were cancelled at the wall.
+    # This is a STOPGAP, not the fix: median successful runtime grew 14.8 -> 19.0 min
+    # over four weeks because the append path re-reads and re-validates the entire
+    # forecast log three times per appended row (next_seq in runner.py, then next_seq
+    # and head_hash again inside append_row), so cost scales with markets x accumulated
+    # rows. At that growth this ceiling is reached again in roughly six weeks.
+    # See docs/forecast-runtime-2026-09-12.md for the measurement and the real fix.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
