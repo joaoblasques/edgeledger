@@ -12,6 +12,34 @@ unattended.
 
 ---
 
+## Pull Before You Touch Anything
+
+**This repo commits to itself every 6 hours.** `.github/workflows/forecast.yml` runs on a
+cron and pushes new rows to `data/forecast_log.jsonl` plus an updated
+`docs/chain-head.json`. A local clone therefore goes stale within hours, permanently — this
+is normal, not a sign anything is wrong.
+
+**Start every session with `git pull --rebase --autostash`.** Then, before any push:
+
+```bash
+git fetch origin && git diff --stat origin/master..HEAD
+```
+
+**If that diff shows deletions from `data/forecast_log.jsonl` or changes to
+`docs/chain-head.json` that you did not deliberately make, STOP AND DO NOT PUSH.** You are
+committing on a stale base, and pushing would present an older, shorter log as the current
+state — deleting rows that exist upstream. That violates invariant 1 and breaks the hash
+chain, which is the only thing making this project's track record worth anything. The fix is
+`git pull --rebase`, never `--force`.
+
+This is not hypothetical. On 2026-09-12 a docs-only branch sitting 69 commits behind would
+have pushed a **27,600-row deletion** (29,600 local vs 57,200 upstream). The commits touched
+neither file; the staleness alone produced the deletion. It was caught by reading the diff
+before pushing, which is why that check is written here as a rule.
+
+Note that the "Nothing under `data/` is staged" checklist item below does **not** catch this:
+nothing was staged under `data/`. The deletion came from the base commit, not the stage.
+
 ## Design Invariants — Non-Negotiable
 
 These are the credibility of the entire project. Encode them in code, tests, and this file.
@@ -68,5 +96,8 @@ methodology doc.
 - [ ] `ruff check .` is clean
 - [ ] `pytest` passes (or fails only against known-stub modules, and that's stated in the PR/commit)
 - [ ] Nothing under `data/` is staged
+- [ ] `git diff --stat origin/master..HEAD` shows **no** deletions from
+      `data/forecast_log.jsonl` and **no** unintended change to `docs/chain-head.json`
+      (see "Pull Before You Touch Anything" — a stale base silently reverts the log)
 - [ ] An ADR is written in `docs/adr/` if a design invariant above was touched
 - [ ] `docs/methodology.md` is updated if scoring logic changed
