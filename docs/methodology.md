@@ -93,6 +93,17 @@ Metrics, always reported as a pair (model vs. market baseline):
 - **Closing-line value (CLV)** — the market's own mid at forecast time minus its mid at close.
   This is the metric a desk trusts most, because it isolates timing skill from luck.
 
+  There is a mechanism behind that, not just convention. Gómez-Cram, Guo, Jensen & Kung
+  ([SSRN 6617059](https://ssrn.com/abstract=6617059); see
+  [`research/2026-06-informed-minority.md`](research/2026-06-informed-minority.md)) find that
+  Polymarket prices are set at the margin by a small, persistently skilled minority (~3% of
+  accounts) that reacts fast to *public* news. If most post-forecast price movement is that
+  minority revising, then CLV is close to a direct read on whether a forecast saw what they
+  saw — and it is legible long before resolution. That is a second, independent reason to
+  lead with CLV over Brier, alongside the sample-size argument below. Note the direction of
+  the finding: it makes beating the mid *harder*, not easier, since the baseline is those
+  traders rather than a diffuse crowd.
+
 ### Two universes: what can be scored, and what cannot
 
 **Committed 2026-08-21, before any forecast had resolved.** Recorded here in advance
