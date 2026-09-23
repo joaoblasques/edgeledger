@@ -27,6 +27,12 @@ data/*
 # public, the honest record stops being honest.
 learning-log/
 
+# Private job-search material: specific postings, fit assessments, comp research,
+# application drafts. Kept in-repo so it sits next to the artifact it is about, but never
+# published — an honest read on "am I actually employable for this" stops being honest the
+# moment a named employer can read it. Same reasoning as learning-log/ above.
+job-research/
+
 # Secrets
 .env
 *.pem
