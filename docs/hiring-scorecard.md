@@ -130,6 +130,10 @@ These move before the checkpoints do:
 3. **Can you explain the last rung you studied, out loud, in plain language?** This is the
    ROADMAP's comprehension gate. If not, the rung is not done.
 4. **Would a stranger understand the README?** Re-read it cold every quarter.
+5. **Has anything been written publicly yet?** The month-18 checkpoint requires work public
+   beyond the repo, which means the writing starts long before month 18 — realistically
+   alongside the month-12 results. A repo nobody is pointed at persuades nobody, and this is
+   the indicator that goes quiet without anyone noticing.
 
 ## What would make this project fail
 
