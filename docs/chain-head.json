@@ -1,6 +1,6 @@
 {
-  "head_hash": "4de088b34a31bfe642e8ea43e578e05c95914359732bd7f4b6651a62fd3e2106",
-  "log_rows": 80000,
-  "as_of_utc": "2026-09-27T12:21:14.163854+00:00",
+  "head_hash": "c4e9b1cf8e4afd162bc51680e30c92de0b83ca69348eb008d610e96b8af93e0f",
+  "log_rows": 80400,
+  "as_of_utc": "2026-09-27T17:19:39.633887+00:00",
   "resolutions_polled": 0
 }
